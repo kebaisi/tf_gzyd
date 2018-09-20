@@ -1,0 +1,39 @@
+package com.kbs.sys;
+
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.commons.metadata.MetaDataBO;
+import com.kbs.util.DateTimeUtil;
+import com.kbs.util.TF;
+
+public class ExceptionInfoService {
+	private static MetaDataBO metaDataBO=new MetaDataBO();
+	/**
+	 * 插入异常信息表
+	 * className:类名  
+	 * exceptionMsg:异常信息  
+	 * type:所属模块(0:RFID模块; 1:IC模块； 2:数据上报；3：同步；4：运营界面；5：其他)
+	 * synStatus:同步状态(0：本地数据，未上传到服务器	1：已同步到服务器)
+	 * dataJson:详细错误信息
+	 */
+	public static boolean insertExceptionData(int type,String className,String exceptionMsg,String dataJson){
+		JSONObject exceptionMap=new JSONObject();
+		exceptionMap.put("SEQNO",TF.dsJson.getString("machineId")+metaDataBO.queryForArray("select _nextval('tf_exception_record')")[0]);
+		exceptionMap.put("CLASS_NAME",className);
+		exceptionMap.put("CREATETIME",DateTimeUtil.getNowDate());
+		exceptionMap.put("MSG",exceptionMsg);
+		exceptionMap.put("MODEL_TYPE",type);//0表示RFID模块
+		exceptionMap.put("IS_UPLOAD","0");//0表示本地数据，未上传到服务器。1表示已同步到服务器
+		if(dataJson!=null){
+			exceptionMap.put("DATA_INFO", dataJson.toString().replaceAll("'", "\""));
+			if(exceptionMap.get("DATA_INFO").toString().length()>200){
+				exceptionMap.put("DATA_INFO", exceptionMap.get("DATA_INFO").toString().substring(0, 200));
+			}
+		}
+		exceptionMap.put("MACHINE_NO",TF.dsJson.getString("machineId"));
+		int i=metaDataBO.execute(metaDataBO.toSql(exceptionMap, "tf_exception_record"));
+		if(i>0){
+			return true;
+		}
+		return false;
+	}
+}

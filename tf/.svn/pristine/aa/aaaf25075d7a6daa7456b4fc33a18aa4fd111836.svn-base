@@ -1,0 +1,135 @@
+package com.kbs.timer;
+
+import java.util.List;
+import java.util.Map;
+import java.util.TimerTask;
+
+import org.apache.log4j.Logger;
+
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.commons.metadata.MetaDataBO;
+import com.kbs.sys.LoadTFCache;
+import com.kbs.util.TF;
+
+public class CheckUpdateByStatus extends TimerTask{
+	private Logger log= Logger.getLogger(CheckUpdateByStatus.class);
+	private MetaDataBO metaDataBo=new MetaDataBO();
+	
+	@Override
+	public void run() {
+		checkStatus();
+	}
+	public void checkStatus(){
+		Map operateStatusMap=metaDataBo.queryForMap("select * from tf_meter_operation_record limit 0,1");
+		if(operateStatusMap==null||operateStatusMap.size()<1){
+			return;
+		}
+		String isOnline=operateStatusMap.get("ONLINE_STATUS")+"";
+		String loginStatus=operateStatusMap.get("LOGIN_STATUS")+"";
+//		if(isOnline.equals("0")){
+//			TF.checkStatus.put("checkLoginStatus",2);
+//		}
+		String isSyn=operateStatusMap.get("SYN_STATUS")+"";
+		TF.checkStatus.put("checkStatus", isOnline);
+		TF.checkStatus.put("checkLoginStatus",loginStatus);
+//		if(isSyn!=null&&isSyn.equals("1")){
+//			LoadTFCache.loadChache();
+//		}
+		if(TF.userJson.getIntValue("LOGINTYPE")==0){
+			return;
+		}
+		List<Map<String,Object>> synList=metaDataBo.queryForListMap("select * from tf_syn_record");
+		if(synList!=null&&synList.size()>0){
+			for(Map synMap:synList){
+				JSONObject updateJson=null;
+				//1:员工信息  2:餐次信息  3:餐具类别   4:餐具价格  5:IC卡表  6:IC卡配置  7:餐具  8:商品  9:计价器配置 10:账户信息 11:会员信息 12:菜品 13:排菜
+				if(synMap.get("SEQNO").equals("1")){
+					
+				}else if(synMap.get("SEQNO").equals("2")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						TF.mealList=LoadTFCache.getMealList();
+						TF.currentMealTimes =LoadTFCache.getCurrMites();
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "2");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}else if(synMap.get("SEQNO").equals("3")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						TF.chipJson=LoadTFCache.loadChip();
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "3");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}else if(synMap.get("SEQNO").equals("4")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						TF.chipJson=LoadTFCache.loadChip();
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "4");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}else if(synMap.get("SEQNO").equals("5")){
+					
+				}else if(synMap.get("SEQNO").equals("6")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						TF.icJson.put("rule_config", LoadTFCache.loadIcrwRule());
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "6");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}else if(synMap.get("SEQNO").equals("7")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						TF.chipJson=LoadTFCache.loadChip();
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "7");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}
+//				else if(synMap.get("SEQNO").equals("8")){
+//					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+//						TF.commodityJson=LoadTFCache.loadCommodity();
+//						updateJson=new JSONObject();
+//						updateJson.put("SEQNO", "8");
+//						updateJson.put("SYN_CHANGE_STATUS", 0);
+//					}
+//				}
+				else if(synMap.get("SEQNO").equals("9")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						TF.settingsMap=LoadTFCache.loadSettings();
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "9");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}else if(synMap.get("SEQNO").equals("10")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "10");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}else if(synMap.get("SEQNO").equals("11")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "11");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}else if(synMap.get("SEQNO").equals("12")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						TF.chipJson=LoadTFCache.loadChip();
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "12");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}else if(synMap.get("SEQNO").equals("13")){
+					if(synMap.get("SYN_CHANGE_STATUS").equals("1")){
+						TF.chipJson=LoadTFCache.loadChip();
+						updateJson=new JSONObject();
+						updateJson.put("SEQNO", "13");
+						updateJson.put("SYN_CHANGE_STATUS", 0);
+					}
+				}
+				if(updateJson!=null)
+				metaDataBo.execute(metaDataBo.toSql(updateJson, "tf_syn_record", "SEQNO"));
+			}
+		}
+	}
+	
+}

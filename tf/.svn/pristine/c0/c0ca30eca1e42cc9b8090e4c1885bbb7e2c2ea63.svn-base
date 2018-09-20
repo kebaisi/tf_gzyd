@@ -1,0 +1,216 @@
+package com.kbs.swing.panel;
+
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.FlowLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+
+import javax.swing.DefaultCellEditor;
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JFrame;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
+import javax.swing.border.EmptyBorder;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellEditor;
+
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.util.DataConvertUtil;
+import com.kbs.util.DateTimeUtil;
+import com.kbs.util.TF;
+
+public class GuadanDialog extends JDialog {
+
+	private final JPanel contentPanel = new JPanel();
+	private MyJTable1 table;
+	private JSONArray selectArr=new JSONArray();
+	private Object[][] infoObj=new Object[][]{};
+	private Object[] headerObj=new Object[]{"序号","数量","价格","操作"};
+	DefaultTableModel model;
+
+	/**
+	 * Launch the application.
+	 */
+//	public static void main(String[] args) {
+//		try {
+//			GuadanDialog dialog = new GuadanDialog();
+//			dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+//			dialog.setVisible(true);
+//		} catch (Exception e) {
+//			e.printStackTrace();
+//		}
+//	}
+
+	/**
+	 * Create the dialog.
+	 */
+	public GuadanDialog(JFrame frame,String title,boolean flag) {
+		super(frame,title,flag);
+		initGUI();
+		table.setDefaultRenderer(Object.class,new MyRender());
+		table.setDefaultEditor(Object.class,new MyEditor());
+		infoObj=new Object[TF.consumeList.size()][4];
+		for(int i=0;i<TF.consumeList.size();i++){
+			JSONObject json=TF.consumeList.get(i);
+			infoObj[i]=new Object[]{i+1,json.getString("total_num"),json.getString("total_price"),new JButton("删除")};
+		}
+		model=new DefaultTableModel(infoObj,headerObj);
+		model.setDataVector(infoObj, headerObj);
+		table.setModel(model);
+	}
+	
+	public void initGUI(){
+		setBounds(100, 100, 450, 300);
+		getContentPane().setLayout(new BorderLayout());
+		contentPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
+		getContentPane().add(contentPanel, BorderLayout.CENTER);
+		contentPanel.setLayout(new BorderLayout(0, 0));
+		{
+			JScrollPane scrollPane = new JScrollPane();
+			contentPanel.add(scrollPane, BorderLayout.CENTER);
+			{
+				table = new MyJTable1();
+//				table.setRowHeight(50);
+				scrollPane.setViewportView(table);
+			}
+		}
+		{
+			JPanel buttonPane = new JPanel();
+			buttonPane.setLayout(new FlowLayout(FlowLayout.RIGHT));
+			getContentPane().add(buttonPane, BorderLayout.SOUTH);
+			{
+				JButton btn_ok = new JButton("确定");
+				btn_ok.addActionListener(new ActionListener() {
+					public void actionPerformed(ActionEvent e) {
+						if(selectArr.size()==0){
+							GuadanDialog.this.dispose();
+							return;
+						}
+						for(int i=0;i<selectArr.size();i++){
+							TF.consumeList.remove(selectArr.getIntValue(i));
+						}
+
+						// TODO Auto-generated method stub
+						TF.gdJson = JSONObject.parseObject(TF.defaultJSON.toJSONString());
+						for(JSONObject consumeJson:TF.consumeList){
+							TF.gdJson.put("total_price", TF.gdJson.getFloatValue("total_price")+consumeJson.getFloatValue("total_price"));
+							TF.gdJson.put("total_num", TF.gdJson.getIntValue("total_num")+consumeJson.getIntValue("total_num"));
+							TF.gdJson.getJSONObject("valuation").getJSONObject("auto").put("price", TF.gdJson.getJSONObject("valuation").getJSONObject("auto").getFloatValue("price")+consumeJson.getJSONObject("valuation").getJSONObject("auto").getFloatValue("price"));
+							TF.gdJson.getJSONObject("valuation").getJSONObject("auto").put("num", TF.gdJson.getJSONObject("valuation").getJSONObject("auto").getIntValue("num")+consumeJson.getJSONObject("valuation").getJSONObject("auto").getIntValue("num"));
+							TF.gdJson.getJSONObject("valuation").getJSONObject("handwork").put("price", TF.gdJson.getJSONObject("valuation").getJSONObject("handwork").getFloatValue("price")+consumeJson.getJSONObject("valuation").getJSONObject("handwork").getFloatValue("price"));
+							TF.gdJson.getJSONObject("valuation").getJSONObject("handwork").put("num", TF.gdJson.getJSONObject("valuation").getJSONObject("handwork").getIntValue("num")+consumeJson.getJSONObject("valuation").getJSONObject("handwork").getIntValue("num"));
+							TF.gdJson.getJSONObject("valuation").getJSONObject("commodity").put("price", TF.gdJson.getJSONObject("valuation").getJSONObject("commodity").getFloatValue("price")+consumeJson.getJSONObject("valuation").getJSONObject("commodity").getFloatValue("price"));
+							TF.gdJson.getJSONObject("valuation").getJSONObject("commodity").put("num", TF.gdJson.getJSONObject("valuation").getJSONObject("commodity").getIntValue("num")+consumeJson.getJSONObject("valuation").getJSONObject("commodity").getIntValue("num"));
+							for(String key:consumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").keySet()){
+								TF.gdJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").put(key,consumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").getJSONObject(key));
+							}
+							for(String key:consumeJson.getJSONObject("valuation").getJSONObject("handwork").getJSONObject("view").keySet()){
+								TF.gdJson.getJSONObject("valuation").getJSONObject("handwork").getJSONObject("view").put(key,consumeJson.getJSONObject("valuation").getJSONObject("handwork").getJSONObject("view").getJSONObject(key));
+							}
+							for(String key:consumeJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").keySet()){
+								if(TF.gdJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").containsKey(key)){
+									TF.gdJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").getJSONObject(key).put("num",TF.gdJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").getJSONObject(key).getIntValue("num")+consumeJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").getJSONObject(key).getIntValue("num"));
+								}else{
+									TF.gdJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").put(key,consumeJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").getJSONObject(key));
+								}
+							}
+						}
+						GuadanDialog.this.dispose();
+					}
+				});
+				btn_ok.setActionCommand("OK");
+				buttonPane.add(btn_ok);
+				getRootPane().setDefaultButton(btn_ok);
+			}
+			{
+				JButton btn_cancle = new JButton("取消");
+				btn_cancle.addActionListener(new ActionListener() {
+					public void actionPerformed(ActionEvent e) {
+						GuadanDialog.this.dispose();
+					}
+				});
+				buttonPane.add(btn_cancle);
+			}
+		}
+	}
+
+	class MyRender extends DefaultTableCellRenderer {
+		JButton btn;
+		
+		public MyRender(){
+		}
+		
+		@Override
+		public Component getTableCellRendererComponent(JTable table,
+				Object value, boolean isSelected, boolean hasFocus,
+				int row, int column) {
+			// TODO Auto-generated method stub
+			if(column==table.getColumnCount()-1){
+				btn=new JButton();
+				btn.setText("删除");
+				return btn;
+			}else{
+				return super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+			}
+		}
+		
+        }
+	
+	
+	class MyEditor extends DefaultCellEditor implements TableCellEditor ,ActionListener {
+
+		@Override
+		public void actionPerformed(ActionEvent e) {
+			// TODO Auto-generated method stub
+//			 int row =((JTable)e.getSource()).rowAtPoint(e.getPoint()); //获得行位置
+			 int row=table.getSelectedRow();
+			 if(row>=0){
+				 model.removeRow(row);
+				 model.fireTableDataChanged();
+				 selectArr.add(row);
+			 }
+			 if(table.getRowCount()>0){
+				 table.selectAll();
+				 table.setRowSelectionInterval(row>0?row-1:row,row>0?row-1:row);
+			 }
+		}
+
+		JButton btn;
+		
+		public MyEditor(){
+			super(new JTextField());
+			this.setClickCountToStart(1);
+		}
+		
+		@Override
+		public Object getCellEditorValue() {
+			// TODO Auto-generated method stub
+			return btn.getText();
+		}
+
+		@Override
+		public Component getTableCellEditorComponent(JTable table,
+				Object value, boolean isSelected, int row, int column) {
+			// TODO Auto-generated method stub
+			if(column==table.getColumnCount()-1){
+				btn=new JButton();
+				btn.setText("删除");
+				btn.addActionListener(this);
+				return btn;
+			}else {
+				return super.getTableCellEditorComponent(table, value, isSelected, row, column);
+			}
+		}
+		
+        }
+}

@@ -1,0 +1,51 @@
+package com.kbs.consume.operations;
+
+import com.kbs.consume.deduction.IDeductionFactory;
+import com.kbs.consume.deduction.IcDeductionFactory;
+import com.kbs.sys.LoadTFCache;
+import com.kbs.util.TF;
+
+public class IcThread extends Thread {
+	long time=System.currentTimeMillis();
+	int count=0;
+	private IDeductionFactory deductionICFactory=new IcDeductionFactory();
+	private IOperationsDeduction ic_deduction=deductionICFactory.createOperationsDeduction();
+	 
+	@Override
+	public synchronized void run() {
+	  while(true){
+		if(RfidThread.isOnSale&&TF.comStatusMap.getIntValue("icComStatus")==1){
+			//优先现金扣费
+//			if(TF.ConsumeJson.getJSONObject("deduction").getJSONObject("cash").getFloatValue("real_price")>0){
+//				try {
+//					IcThread.sleep(1000);
+//				} catch (InterruptedException e) {
+//					// TODO Auto-generated catch block
+//					e.printStackTrace();
+//				}
+//				return;
+//			}
+			try {
+//				if(TF.comStatusMap.getIntValue("icComStatus")==1){
+					if(TF.ConsumeJson==null || 
+							!TF.ConsumeJson.containsKey("deduction") || TF.ConsumeJson.getJSONObject("deduction")==null || 
+									!TF.ConsumeJson.getJSONObject("deduction").containsKey("cash") || TF.ConsumeJson.getJSONObject("deduction").getJSONObject("cash")==null || 
+							!TF.ConsumeJson.getJSONObject("deduction").getJSONObject("cash").containsKey("real_price")|| TF.ConsumeJson.getJSONObject("deduction").getJSONObject("cash").getFloatValue("real_price")==0.0){
+					  boolean flag=false;
+					  flag=ic_deduction.deduction(null);
+					}
+//				}
+			} catch (Exception e1) {
+					e1.printStackTrace();
+				}
+		}else{
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	}
+ }
+}

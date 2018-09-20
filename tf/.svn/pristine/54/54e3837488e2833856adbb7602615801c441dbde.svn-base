@@ -1,0 +1,289 @@
+package com.kbs.sys;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+
+import org.apache.log4j.Logger;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.commons.metadata.MetaDataBO;
+import com.kbs.commons.util.PropertiesUtil;
+import com.kbs.consume.service.ConsumeService;
+import com.kbs.util.ConfigPro;
+import com.kbs.util.DateTimeUtil;
+import com.kbs.util.TF;
+//import com.kbs.timer.SynCommodityCache;
+
+public class LoadTFCache {
+	private static ConsumeService consumeService=ConsumeService.getInstance();
+	private static MetaDataBO metaDataBO=new MetaDataBO();
+	private static Logger logger=Logger.getLogger(LoadTFCache.class);
+	
+	public LoadTFCache(){
+		LoadLogProperties load = new LoadLogProperties();
+		clearConsumeCache();
+		loadChache();
+	}
+	
+	/**
+	 * 加载本地缓存
+	 */
+	public static void loadChache(){
+		try {
+			String mealTime=getCurrMites();
+			if(mealTime==null||mealTime.equals("")||Integer.parseInt(mealTime)<0){
+				logger.error("本地数据库中餐次格式错误");
+				ExceptionInfoService.insertExceptionData(5, "LoadTFCache", "本地数据库中餐次格式错误", "");
+			}else{
+				TF.currentMealTimes =mealTime;
+			}
+			TF.mealList=LoadTFCache.getMealList();
+			try {
+				TF.storeJson=loadStore();
+			} catch (Exception e1) {
+				// TODO Auto-generated catch block
+				logger.error("加载店铺信息失败");
+			}
+			try {
+				TF.icJson.put("client_code", TF.storeJson.getString("STORE_USERID"));
+				TF.icJson.put("rule_config", loadIcrwRule());
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				logger.error("加载卡配置信息失败");
+				ExceptionInfoService.insertExceptionData(1, "LoadTFCache", "加载卡配置信息失败", e.getMessage());
+			}
+			try {
+				Map<String,String> settingsMap=loadSettings();
+				if(settingsMap==null||settingsMap.size()==0){
+					logger.error("加载计价器配置信息失败");
+					ExceptionInfoService.insertExceptionData(0, "LoadTFCache", "加载计价器配置信息失败", "");
+				}else{
+					TF.settingsMap=settingsMap;
+				}
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				logger.error("加载计价器时间配置信息失败");
+				ExceptionInfoService.insertExceptionData(0, "LoadTFCache", "加载计价器配置信息失败", e.getMessage());
+			}
+			try {
+				TF.chipJson=loadChip();
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				logger.error("加载本地数据库芯片数据失败");
+				ExceptionInfoService.insertExceptionData(5, "LoadTFCache", "加载本地数据库芯片数据失败", e.getMessage());
+			}
+//				try {
+//					TF.commodityJson=loadCommodity();
+//				} catch (Exception e) {
+//					// TODO Auto-generated catch block
+//					logger.error("加载本地数据库商品数据失败");
+//					ExceptionInfoService.insertExceptionData(5, "LoadTFCache", "加载本地数据库商品数据失败", e.getMessage());
+//				}
+			try {
+				LoadTFCache.loadConsumeNum();
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				logger.error("加载人数统计信息失败");
+				ExceptionInfoService.insertExceptionData(5, "LoadTFCache", "加载人数统计信息失败", e.getMessage());
+			}
+//			TF.commodityList=retailService.queryCommodity("",false);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			logger.error("加载本地缓存失败");
+		}
+		logger.info("加载本地缓存成功");
+	}
+	
+	
+	public static List getMealList(){
+		List<Map<String, Object>> list=metaDataBO.queryForListMap("select * from tf_meter_mealtims_relation where MACHINE_NO='"+TF.dsJson.getString("machineId")+"' order by MT_ID");
+		return list;
+	}
+	
+	/**
+	 * 加载当前餐次
+	 * @return
+	 */
+	public static String getCurrMites(){
+		try {
+			Date date=new Date();
+			Date currentDate=new Date();
+			long currentTime=currentTime = new SimpleDateFormat("HH:mm").parse(new SimpleDateFormat("HH:mm").format(date)).getTime();
+			List<Map<String, Object>> list=metaDataBO.queryForListMap("select * from tf_meter_mealtims_relation where MACHINE_NO='"+TF.dsJson.getString("machineId")+"'");
+			for(Map mealMap:list){
+				long beginTime=new SimpleDateFormat("HH:mm").parse((String)mealMap.get("STARTTIME")).getTime();
+				long endTime=new SimpleDateFormat("HH:mm").parse((String)mealMap.get("ENDTIME")).getTime();
+				if(endTime<beginTime){
+					endTime+=24*60*60*1000;
+				}
+				if(currentTime>beginTime&&currentTime<endTime){
+					return (String)mealMap.get("MT_ID");
+				}
+			}
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			logger.error("加载餐次失败");
+			ExceptionInfoService.insertExceptionData(5, "LoadTFCache", "加载餐次失败", e.getMessage());
+		}
+		return "0";
+	}
+	
+	/**
+	 * 加载店铺信息
+	 */
+	public static JSONObject loadStore(){
+		try {
+			Map<String,Object> storeMap = metaDataBO.queryForMap("SELECT * From tf_store_record");
+			if(storeMap.size()<1){
+				return null;
+			}
+			JSONObject jsonObject = new JSONObject();
+			for (String key:storeMap.keySet()) {
+				jsonObject.put(key, storeMap.get(key));
+			}
+			return jsonObject;
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			return null;
+		}
+	
+	}
+	
+	/**
+	 * 加载卡配置信息
+	 * @return
+	 */
+	public static JSONObject loadIcrwRule(){
+		List<Map<String,Object>> icrwRules = metaDataBO.queryForListMap("SELECT * From tf_icrw_rule");
+		JSONObject jsonObject = new JSONObject();
+		for (Map<String, Object> icRulemap:icrwRules) {
+			if(jsonObject.getJSONObject(icRulemap.get("RW_SECTOR")+"")==null){
+				jsonObject.put(icRulemap.get("RW_SECTOR")+"", new JSONObject());
+			}
+			if(jsonObject.getJSONObject(icRulemap.get("RW_SECTOR")+"").getJSONObject(icRulemap.get("RW_ADDRESSCODE")+"")==null){
+				jsonObject.getJSONObject(icRulemap.get("RW_SECTOR")+"").put(icRulemap.get("RW_ADDRESSCODE")+"", new JSONObject());
+			}
+			jsonObject.getJSONObject(icRulemap.get("RW_SECTOR")+"").getJSONObject(icRulemap.get("RW_ADDRESSCODE")+"").put(icRulemap.get("RW_FIELD")+"", icRulemap);
+		}
+		return jsonObject;
+	}
+	
+	/**
+	 * 加载本地数据库中芯片信息数据
+	 * @return
+	 */
+	public static JSONObject loadChip(){
+		JSONObject jsonObj=new JSONObject();
+		List<Map<String, Object>> categoryList=metaDataBO.queryForListMap("select * from tf_meter_chiptype_relation");
+		List<Map<String, Object>> chipinfoList=metaDataBO.queryForListMap("select * from tf_chipinfo");
+		List<Map<String, Object>> chippriceList=metaDataBO.queryForListMap("select * from tf_meter_mealtims_chipcategroy_relation order By MT_ID");
+		List<Map<String, Object>> dishlistList=metaDataBO.queryForListMap("select * from tf_dish_list_record where USE_STATUS='0' and DL_DATE='"+DateTimeUtil.getNowSimpleDate()+"'");
+		List<Map<String, Object>> dishList=metaDataBO.queryForListMap("select * from tf_dish_record");
+		jsonObj.put("chipinfo", new JSONObject());
+		for(Map<String, Object> chipMap:chipinfoList){
+			jsonObj.getJSONObject("chipinfo").put(chipMap.get("CP_NO").toString(), chipMap);
+		}
+		jsonObj.put("category", new JSONObject());
+		for(Map<String, Object> category:categoryList){
+			jsonObj.getJSONObject("category").put(category.get("CG_ID").toString(), category);
+		}
+		jsonObj.put("dishlist", new JSONObject());
+//		jsonObj.put("dishlist", dishlistList);
+		for(Map<String, Object> dishlist:dishlistList){
+			if(!jsonObj.getJSONObject("dishlist").containsKey(dishlist.get("MT_ID").toString())){
+				jsonObj.getJSONObject("dishlist").put(dishlist.get("MT_ID").toString(), new JSONObject());
+			}
+			jsonObj.getJSONObject("dishlist").getJSONObject(dishlist.get("MT_ID").toString()).put(dishlist.get("CG_ID").toString(), dishlist);
+		}
+//		jsonObj.put("category", new JSONObject());
+//		for(Map<String, Object> category:categoryList){
+//			jsonObj.getJSONObject("category").put(category.get("CG_ID").toString(), category);
+//		}
+		jsonObj.put("chipprice", new JSONObject());
+		for(Map<String, Object> chipprice:chippriceList){
+			if(!jsonObj.getJSONObject("chipprice").containsKey(chipprice.get("MT_ID").toString())){
+				jsonObj.getJSONObject("chipprice").put(chipprice.get("MT_ID").toString(), new JSONObject());
+			}
+			jsonObj.getJSONObject("chipprice").getJSONObject(chipprice.get("MT_ID").toString()).put(chipprice.get("CG_ID").toString(), chipprice);
+		}
+		jsonObj.put("dish", new JSONObject());
+		for(Map<String, Object> dish:dishList){
+			jsonObj.getJSONObject("dish").put(dish.get("DISH_ID").toString(), dish);
+		}
+		return jsonObj;
+	}
+	
+//	public static JSONObject loadCommodity(){
+//		JSONObject jsonObj=new JSONObject();
+//		List<Map<String,Object>> commodityList=metaDataBO.queryForListMap("select * from tf_commodity_record");
+//		jsonObj.put("data", new JSONArray());
+//		for(Map<String,Object> map:commodityList){
+//			if(map.get("USE_STATUS")!=null&&map.get("USE_STATUS").equals("0")){
+//				jsonObj.getJSONArray("data").add(map);
+//			}
+//		}
+//		
+//		return jsonObj;
+//	}
+	
+	/**
+	 * 加载本地数据库中对定时器的时间配置
+	 * @return
+	 */
+	public static Map<String,String> loadSettings(){
+		Map map = new HashMap();
+		List<Map<String,Object>> settingsList=metaDataBO.queryForListMap("select * from tf_settings");
+		for(Map m:settingsList){
+			map.put(m.get("SCODE"), m.get("SVALUE"));
+		}
+		return map;
+	}
+	
+	/**
+	 * TF.ConsumeJson初始化
+	 */
+	public  static void clearConsumeCache(){
+		int flag=TF.ConsumeJson.getIntValue("isPrint");
+		TF.ConsumeJson = new JSONObject();
+		TF.ConsumeJson = JSONObject.parseObject(TF.defaultJSON.toJSONString());
+		TF.ConsumeJson.put("isPrint", flag);
+	}
+	
+	/**
+	 * 消费人数
+	 */
+	public static void loadConsumeNum(){
+		TF.consumePersonJson.put("cur_meal",consumeService.queryCurrentMealConsumeNum());
+		TF.consumePersonJson.put("cur_day",consumeService.queryCurrentDayConsumeNum());
+	}
+	
+	/**
+	 * 消费人数统计
+	 */
+	public static void loadConsumeInfo(){
+		TF.consumePersonJson.put("cur_meal",TF.consumePersonJson.getIntValue("cur_meal")+1);
+		TF.consumePersonJson.put("cur_day",TF.consumePersonJson.getIntValue("cur_day")+1);
+	}
+	
+	/**
+	 * 消费流水JSON
+	 * @param consumeJson
+	 */
+	public static void loadConsumeWater(JSONObject consumeJson){
+		TF.consumeWaterJson.put("3", TF.consumeWaterJson.getJSONObject("2"));
+		TF.consumeWaterJson.put("2", TF.consumeWaterJson.getJSONObject("1"));
+		TF.consumeWaterJson.put("1", consumeJson);
+	}
+	public static void main(String[] args) {
+		JSONObject jsonObj=new JSONObject();
+		jsonObj.put("data", LoadTFCache.getMealList());
+		 System.out.println(jsonObj.toJSONString());
+	}
+	
+}

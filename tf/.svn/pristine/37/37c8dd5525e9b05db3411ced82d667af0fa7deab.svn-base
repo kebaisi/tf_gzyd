@@ -1,0 +1,1062 @@
+package com.kbs.swing.frame;
+
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Image;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
+import java.awt.event.KeyEvent;
+import java.awt.image.ImageObserver;
+import java.awt.image.ImageProducer;
+import java.io.File;
+import java.lang.reflect.Method;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.TimeZone;
+import java.util.Timer;
+
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPasswordField;
+import javax.swing.JProgressBar;
+import javax.swing.JSeparator;
+import javax.swing.JTextField;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+import javax.swing.plaf.ProgressBarUI;
+
+import org.apache.commons.lang.StringUtils;
+import org.apache.log4j.Logger;
+
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.commons.metadata.MetaDataBO;
+import com.kbs.swing.panel.ErrorMsgPanel;
+import com.kbs.sys.CheckStatusService;
+import com.kbs.sys.ExceptionInfoService;
+import com.kbs.sys.LoadTFCache;
+import com.kbs.sys.UserLogin;
+import com.kbs.timer.CheckUpdateByStatus;
+import com.kbs.util.DateTimeUtil;
+import com.kbs.util.GetProjectRealPath;
+import com.kbs.util.HttpClient;
+import com.kbs.util.MD5;
+import com.kbs.util.TF;
+import javax.swing.SwingConstants;
+
+public class LoginPanel extends JPanel {
+
+	private JTextField txt_userName;
+	private JPasswordField txt_pwd;
+	private MyFocusListener focusListener=new MyFocusListener();
+	private JButton btn_login;
+	Timer checkIsOnLineTimer=new Timer();
+	private MainFrame mainFrame;
+	private JProgressBar loadingProgressBar;
+	private JLabel label_status;
+	private NumberInputPnl numInputPnl;
+	
+//	private MetaDataBO metaDataBo=new MetaDataBO();
+//	javax.swing.Timer displayTimer;
+//	javax.swing.Timer checkStatusTimer;
+	JSONObject statusJson=new JSONObject();
+	JSONArray taskArr=new JSONArray();
+	private Logger log = Logger.getLogger(CheckStatusService.class);
+//	private HttpClient httpClient=new HttpClient();
+	String serverTime="";
+	SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+	private JPanel panel_error;
+	private JLabel label_errorTitle;
+	private JLabel label_errorInfo;
+//	private int percent=0;
+	ErrorMsgPanel errorMsgPanel;
+	private JTextField textField;
+	private JLabel label_2;
+	private JPanel panel;
+	private JLabel label_1;
+	
+	/**
+	 * Launch the application.
+	 */
+//	public static void main(String[] args) {
+//		EventQueue.invokeLater(new Runnable() {
+//			public void run() {
+//				try {
+//					LoginFrame frame = new LoginFrame();
+//					frame.setVisible(true);
+//				} catch (Exception e) {
+//					e.printStackTrace();
+//				}
+//			}
+//		});
+//	}
+	public void checkValid(){
+		MetaDataBO metaDataBO  =new MetaDataBO();
+		Map<String, Object> map = metaDataBO.queryForMap("SELECT * FROM tf_meter_operation_record");
+		if(Integer.parseInt(map.get("VALID").toString())==1){
+			btn_login.setEnabled(true);
+			panel.setVisible(false);
+		}else{
+			long timediff = DateTimeUtil.dateDiff(DateTimeUtil.getNowSimpleDate(),map.get("INDATE").toString(), "yyyy-MM-dd", "s");
+			if(timediff>15*24*60*60){
+//				JOptionPane.showMessageDialog(LoginPanel.this,"请输入激活码？"); 
+				panel.setVisible(false);
+				btn_login.setEnabled(true);
+			}else if(timediff>=0 && timediff<15*24*60*60){
+				panel.setVisible(true);
+				btn_login.setEnabled(true);
+			}else if(timediff<0){
+				panel.setVisible(true);
+				btn_login.setEnabled(false);
+			}
+			label_1.setText(map.get("INDATE").toString());
+//			panel.setVisible(true);
+		}
+	}
+	/**
+	 * Create the frame.
+	 */
+	public LoginPanel(MainFrame mainFrame) {
+		this.mainFrame=mainFrame;
+		initGUI();
+		errorMsgPanel=new ErrorMsgPanel();
+		errorMsgPanel.setBounds(573, 374,450,300);
+		errorMsgPanel.setVisible(false);
+		add(errorMsgPanel);
+		
+		panel = new JPanel();
+		panel.setBounds(137, 13, 558, 172);
+		add(panel);
+		panel.setLayout(null);
+		panel.setVisible(false);
+		JLabel label = new JLabel("为保障系统正常使用、请及时激活。 截止日期：");
+		label.setFont(new Font("微软雅黑 Light", Font.PLAIN, 15));
+		label.setBounds(10, 1, 320, 55);
+		panel.add(label);
+		
+		JButton button = new JButton("激活");
+		button.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				if(StringUtils.isEmpty(textField.getText())){
+					JOptionPane.showMessageDialog(LoginPanel.this,"请输入激活码？"); 
+					return;
+				}
+				MetaDataBO metaDataBO  =new MetaDataBO();
+				Map<String, Object> map = metaDataBO.queryForMap("SELECT * FROM tf_meter_operation_record");
+				SimpleDateFormat sd = new SimpleDateFormat("yyyy-MM-dd");   
+				if(map.get("INCODE").toString().indexOf(textField.getText())>=0){
+					try {
+				String temp_date =	sd.format(new Date(sd.parse(map.get("INDATE").toString()).getTime()+5*24*60*60*1000));
+				metaDataBO.execute("UPDATE tf_meter_operation_record SET INDATE='"+temp_date+"',INCODE='"+map.get("INCODE").toString().replace(textField.getText(), "")+"'");
+					} catch (ParseException e1) {
+						// TODO Auto-generated catch block
+						e1.printStackTrace();
+					}
+					JOptionPane.showMessageDialog(LoginPanel.this,"临时激活成功！"); 
+					checkValid();
+				}else if(textField.getText().equals("1398")){
+					
+					metaDataBO.execute("UPDATE tf_meter_operation_record SET VALID='1'");
+					JOptionPane.showMessageDialog(LoginPanel.this,"永久激活成功！"); 
+					checkValid();
+				}else{
+					JOptionPane.showMessageDialog(LoginPanel.this,"激活失败，请联系客服。"); 
+				}
+//				addErrorMsg("登陆异常", "错误信息");
+//				checkValid();
+//				JOptionPane.showMessageDialog(LoginPanel.this,TF.dsJson.toJSONString()); 
+//				errorMsgPanel
+			}
+		});
+		button.setFont(new Font("微软雅黑", Font.PLAIN, 20));
+		button.setBounds(350, 89, 113, 52);
+		panel.add(button);
+		
+		textField = new JTextField();
+		textField.setFont(new Font("微软雅黑", Font.PLAIN, 20));
+		textField.setBounds(10, 88, 320, 55);
+		panel.add(textField);
+		textField.setColumns(10);
+		
+		label_1 = new JLabel("2016-07-19");
+		label_1.setForeground(Color.RED);
+		label_1.setFont(new Font("等线 Light", Font.PLAIN, 22));
+		label_1.setBounds(327, 2, 141, 55);
+		panel.add(label_1);
+		
+		label_2 = new JLabel("激活码：（请联系深圳市科拜斯有限公司）");
+		label_2.setFont(new Font("微软雅黑 Light", Font.PLAIN, 15));
+		label_2.setBounds(10, 44, 360, 38);
+		panel.add(label_2);
+		
+//		calcPanel=new CalcPanel(txt_userName);
+//		add(calcPanel);
+//		this.setUndecorated(true);
+		int second=1;
+		if(TF.dsJson.getIntValue("onlineCheckTimer")!=0){
+			second=TF.dsJson.getIntValue("onlineCheckTimer");
+		}
+        txt_userName.requestFocusInWindow();
+//		txt_userName.grabFocus();
+		checkIsOnLineTimer.schedule(new CheckUpdateByStatus(),0,second*1000);
+		checkValid();
+	}
+	
+	public ErrorMsgPanel getErrorMsgPanel() {
+		return errorMsgPanel;
+	}
+
+	public void setErrorMsgPanel(ErrorMsgPanel errorMsgPanel) {
+		this.errorMsgPanel = errorMsgPanel;
+	}
+
+	public JLabel getLabel_status() {
+		return label_status;
+	}
+
+	public void setLabel_status(JLabel label_status) {
+		this.label_status = label_status;
+	}
+
+	public JProgressBar getLoadingProgressBar() {
+		return loadingProgressBar;
+	}
+
+	public void setLoadingProgressBar(JProgressBar loadingProgressBar) {
+		this.loadingProgressBar = loadingProgressBar;
+	}
+
+	public void initGUI(){
+		TF.dsJson.put("title","登录");
+//		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		setBounds(0, 0, 1024, 698);
+//		contentPane = new JPanel();
+//		contentPane.setBorder(new EmptyBorder(5, 5, 5, 5));
+//		setContentPane(contentPane);
+		setLayout(null);
+		
+		txt_userName = new JTextField();
+		txt_userName.requestFocusInWindow();
+		txt_userName.setFont(new Font("微软雅黑", Font.PLAIN, 20));
+		txt_userName.setBounds(320, 198, 258, 55);
+		add(txt_userName);
+		txt_userName.setColumns(10);
+		txt_pwd = new JPasswordField();
+		txt_pwd.setFont(new Font("微软雅黑", Font.PLAIN, 20));
+		txt_pwd.setColumns(10);
+		txt_pwd.setBounds(320, 285, 258, 55);
+		add(txt_pwd);
+		
+		JLabel label_userIcon = new JLabel("");
+		label_userIcon.setHorizontalAlignment(SwingConstants.RIGHT);
+		label_userIcon.setIcon(new ImageIcon(GetProjectRealPath.getPath("images/member.png")));
+		label_userIcon.setBounds(203, 0, 55, 55);
+		txt_userName.add(label_userIcon);
+		
+		JLabel label_passwordIcon = new JLabel("");
+		label_passwordIcon.setHorizontalAlignment(SwingConstants.RIGHT);
+		label_passwordIcon.setIcon(new ImageIcon(GetProjectRealPath.getPath("images/password.png")));
+		label_passwordIcon.setBounds(203, 0, 55, 55);
+		txt_pwd.add(label_passwordIcon);
+		
+		loadingProgressBar = new JProgressBar();
+		loadingProgressBar.setForeground(new Color(0, 204, 0));
+		loadingProgressBar.setBounds(0, 678, 1024, 20);
+//		loadingProgressBar.updateUI();
+		loadingProgressBar.setUI(new ProgressBarUI() {
+
+			@Override
+			public void paint(Graphics g, JComponent c) {
+				// TODO Auto-generated method stub
+				g.setColor(new Color(14,147,46));
+				float i=loadingProgressBar.getValue();
+				float max=loadingProgressBar.getMaximum();
+				g.fillRect(0, 0, (int)((i/max)*c.getWidth()), c.getHeight());
+//				g.fillOval(0, 0, (int)((i/max)*c.getWidth()), c.getHeight());
+//				g.drawImage(new ImageIcon(LoginPanel.class.getResource("/images/012.gif")).getImage(), 0, 0,(int)((i/max)*c.getWidth()),c.getHeight(), null);
+				repaint();
+			}
+		});
+		add(loadingProgressBar);
+		
+		label_status = new JLabel("");
+		label_status.setFont(new Font("微软雅黑", Font.PLAIN, 16));
+		label_status.setBounds(0, 645, 500, 30);
+		add(label_status);
+		
+		panel_error = new JPanel();
+		panel_error.setBounds(520, 433, 494, 235);
+//		add(panel_error);
+		panel_error.setLayout(null);
+		
+		label_errorTitle = new JLabel("");
+		label_errorTitle.setBounds(0, 0, 494, 33);
+		panel_error.add(label_errorTitle);
+		
+		label_errorInfo = new JLabel("");
+		label_errorInfo.setBounds(0, 35, 494, 200);
+		panel_error.add(label_errorInfo);
+		
+		JSeparator separator = new JSeparator();
+		separator.setBounds(0, 34, 494, 1);
+		panel_error.add(separator);
+		txt_userName.addFocusListener(focusListener);
+		txt_pwd.addFocusListener(focusListener);
+		
+		btn_login = new JButton("登录");
+		ActionListener listener=new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				CheckStatusService checkStatusService=new CheckStatusService(mainFrame);
+//				Thread t=new Thread(new Runnable() {
+//					
+//					@Override
+//					public void run() {
+//						// TODO Auto-generated method stub
+//						login();
+//					}
+//				});
+//				t.start();
+//				login();
+			}
+		};
+		btn_login.addActionListener(listener);
+		btn_login.registerKeyboardAction(listener,KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+		btn_login.setFont(new Font("微软雅黑", Font.PLAIN, 20));
+		btn_login.setBounds(391, 374, 139, 49);
+		add(btn_login);
+	}
+	
+	private class MyFocusListener implements FocusListener{
+
+		@Override
+		public void focusGained(FocusEvent e) {
+			// TODO Auto-generated method stub
+			if(e.getSource() instanceof JTextField){
+//				invalidate();
+				JTextField txt=(JTextField)e.getSource();
+//				loginPanel.setVisible(false);
+				numInputPnl=new NumberInputPnl(LoginPanel.this,txt, txt.getX()+txt.getWidth(),txt.getY());
+//				loginPanel.setVisible(true);
+				validate();
+				repaint();
+			}
+		}
+
+		@Override
+		public void focusLost(FocusEvent e) {
+			// TODO Auto-generated method stub
+			invalidate();
+			LoginPanel.this.remove(numInputPnl);
+			validate();
+			repaint();
+		}
+		
+	}
+	
+//	public void login(){
+//		while(TF.checkStatus.getIntValue("checkLoginStatus")==0){
+//			try {
+//				statusJson.put("msg","数据库初始化中");
+//				Thread.sleep(500);
+//			} catch (InterruptedException e) {
+//				// TODO Auto-generated catch block
+//				e.printStackTrace();
+//			}
+//		}
+//		addTask();
+//		checkStatusTimer= new javax.swing.Timer(1000,new ActionListener() {
+//			
+//			@Override
+//			public void actionPerformed(ActionEvent arg0) {
+////				taskArr=new JSONArray();
+//				if(!statusJson.getBooleanValue("isRunning")){
+//					statusJson.put("isRunning",true);
+//					runTask(taskArr);
+//				}
+//			}
+//		});
+//		checkStatusTimer.start();
+//		checkStatusTimer.setRepeats(true);
+//		
+//		displayTimer= new javax.swing.Timer(10,new ActionListener() {
+//			
+//			@Override
+//			public void actionPerformed(ActionEvent arg0) {
+////				taskArr=new JSONArray();
+////				runTask(taskArr);
+//				label_status.setText(statusJson.getString("msg"));
+//				loadingProgressBar.setValue(statusJson.getIntValue("percent"));
+//				repaint();
+//				System.out.println("percent---"+statusJson.getIntValue("percent"));
+//			}
+//		});
+//		displayTimer.start();
+//		displayTimer.setRepeats(true);
+//	}
+	
+	
+//	public void login(){
+//		loadingProgressBar.setMaximum(100);
+//		checkStatusTimer= new javax.swing.Timer(10000,new ActionListener() {
+//			
+//			@Override
+//			public void actionPerformed(ActionEvent arg0) {
+////				taskArr=new JSONArray();
+//				if(!statusJson.getBooleanValue("isRunning")){
+//					statusJson.put("isRunning",true);
+//					loginService();
+//				}
+//			}
+//		});
+//		checkStatusTimer.start();
+//		checkStatusTimer.setRepeats(true);
+//		
+////		displayTimer= new javax.swing.Timer(1,new ActionListener() {
+////			
+////			@Override
+////			public void actionPerformed(ActionEvent arg0) {
+////				label_status.setText(statusJson.getString("msg"));
+////				if(percent!=statusJson.getIntValue("percent")){
+////					percent=statusJson.getIntValue("percent");
+////					loadingProgressBar.setValue(statusJson.getIntValue("percent"));
+////					System.out.println("percent---"+statusJson.getIntValue("percent"));
+////				}
+////				System.out.println("#######"+statusJson.getIntValue("percent"));
+////				System.out.println("msg---"+statusJson.getString("msg"));
+////			}
+////		});
+//		displayTimer.start();
+//		displayTimer.setRepeats(true);
+//		loginService();
+//	}
+	
+//	public void loginService(){
+//		boolean flag=isOnline();
+//		if(flag){
+//			if(checkServerWhileOnline()){
+//				statusJson.put("percent", 10);
+//				if(checksysDate()){
+//					statusJson.put("percent", 20);
+//					if(synData(System.currentTimeMillis())){
+//						statusJson.put("percent", 90);
+//						if(checkLogin()){
+//							statusJson.put("percent", 95);
+//							if(checkLoginAccess()){
+//								statusJson.put("percent", 100);
+//								statusJson.put("msg", "验证完成");
+//								cancleTimer();
+//								if(TF.userJson.getIntValue("UTYPE")==1){
+////						    		loginFrame.getLoadingProgressBar().setValue(taskArr.size());
+//						    		SalePanel saleFrame=new SalePanel(mainFrame);
+//						    		TF.dsJson.put("title", "运营");
+//						    		mainFrame.addJPanelToMain(saleFrame);
+//						    	}else if(TF.userJson.getIntValue("UTYPE")==2){
+////						    		loginFrame.getLoadingProgressBar().setValue(taskArr.size());
+//						    		MenuPanel menuFrame=new MenuPanel(mainFrame);
+//						    		TF.dsJson.put("title", "主界面");
+//						    		mainFrame.addJPanelToMain(menuFrame);
+//						    	}
+//							}else{
+//								checkIsError();
+//							}
+//						}else{
+//							checkIsError();
+//						}
+//					}else{
+//						checkIsError();
+//					}
+//				}else{
+//					checkIsError();
+//				}
+//			}else{
+//				checkIsError();
+//			}
+//		}else{
+//			if(checkMachineWhileNotOnline()){
+//				if(confirmToMainWhenNotOnline()){
+//					if(checkLoginAccess()){
+//						cancleTimer();
+//						statusJson.put("percent", 100);
+//						if(TF.userJson.getIntValue("UTYPE")==1){
+////				    		loginFrame.getLoadingProgressBar().setValue(taskArr.size());
+//				    		statusJson.put("percent", taskArr.size());
+//				    		SalePanel saleFrame=new SalePanel(mainFrame);
+//				    		TF.dsJson.put("title", "运营");
+//				    		mainFrame.addJPanelToMain(saleFrame);
+//				    	}else if(TF.userJson.getIntValue("UTYPE")==2){
+////				    		loginFrame.getLoadingProgressBar().setValue(taskArr.size());
+//				    		statusJson.put("percent", taskArr.size());
+//				    		MenuPanel menuFrame=new MenuPanel(mainFrame);
+//				    		TF.dsJson.put("title", "主界面");
+//				    		mainFrame.addJPanelToMain(menuFrame);
+//				    	}
+//					}else{
+//						checkIsError();
+//					}
+//				}else{
+//					checkIsError();
+//				}
+//			}else{
+//				checkIsError();
+//			}
+//		}
+//	}
+	
+//	public boolean isOnline(){
+//    	statusJson.put("msg", "检测机器环境中。。。");
+//    	if(TF.checkStatus.getIntValue("checkStatus")==1){
+//    		return true;
+//    	}
+//		else if(TF.checkStatus.getIntValue("checkLoginStatus")==2){
+//    		return false;
+//    	}
+//    	return true;
+//    }
+	
+//	public void checkIsError(){
+//		if(statusJson.getString("status").equals("3")){
+//			JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(panel_error));
+//			label_errorTitle.setText(statusJson.getJSONObject("error").getString("title"));
+//			label_errorInfo.setText(statusJson.getJSONObject("error").getString("info"));
+//			cancleTimer();
+//		}else if(statusJson.getString("status").equals("2")){
+//			
+//		}else{
+//			
+//		}
+//	}
+	
+//	public boolean checkServerWhileOnline(){
+//    	statusJson.put("msg", "检测机器号中。。。");
+//    	if(TF.checkStatus.getIntValue("checkStatus")==1){
+//    		return true;
+//    	}
+//    	if(TF.checkStatus.getIntValue("checkLoginStatus")==3){
+////			JOptionPane.showMessageDialog(LoginPanel.this, "机器号为空，请先注册后再使用","消息",JOptionPane.OK_OPTION);
+////			btnSetting();
+//			addErrorMsg("机号检测", "机器号为空，请先注册后再使用");
+//			statusJson.put("msg", "");
+//			statusJson.put("status", "3");
+//		}else if(TF.checkStatus.getIntValue("checkLoginStatus")==4){
+////			JOptionPane.showMessageDialog(LoginPanel.this, "当前机号被禁止登录","消息",JOptionPane.OK_OPTION);
+//			addErrorMsg("机号检测", "机器号为空，请先注册后再使用");
+//			statusJson.put("msg", "");
+//			statusJson.put("status", "3");
+//		}else if(TF.checkStatus.getIntValue("checkLoginStatus")==5){
+////			JOptionPane.showMessageDialog(LoginPanel.this, "当前机号正在使用中,请释放连接后重新登录","消息",JOptionPane.OK_OPTION);
+//			addErrorMsg("机号检测", "当前机号正在使用中,请释放连接后重新登录");
+//			statusJson.put("msg", "");
+//			statusJson.put("status", "3");
+//		}
+//    	return false;
+//    }
+	
+//	public void addErrorMsg(String title,String info){
+//		if(statusJson.getJSONObject("error")==null)
+//		statusJson.put("error", new JSONObject());
+//		statusJson.getJSONObject("error").put("title", title);
+//		statusJson.getJSONObject("error").put("info", info);
+//	}
+	
+//	public boolean checkMachineWhileNotOnline(){
+//		if(TF.dsJson.getString("machineId")==null||TF.dsJson.getString("machineId").equals("")){
+////			JOptionPane.showMessageDialog(LoginPanel.this, "未发现机号，请连接服务器，注册设备号");
+//			addErrorMsg("机号检测", "未发现机号，请连接服务器，注册设备号");
+//			statusJson.put("msg", "");
+//			statusJson.put("status", "3");
+//			return false;
+//		}
+//		return true;
+//	}
+	
+	 /**
+     * 检测本机连接服务器状态
+     * @return
+     */
+//    public int checkServer(){
+//    	statusJson.put("msg", "检测机器环境中。。。");
+//    	if(TF.checkStatus.getIntValue("checkStatus")==1){
+//    		return 1;
+//    	}else if(TF.checkStatus.getIntValue("checkLoginStatus")==3){
+//			JOptionPane.showMessageDialog(LoginPanel.this, "机器号为空，请先注册后再使用","消息",JOptionPane.OK_OPTION);
+////			btnSetting();
+//			statusJson.put("msg", "");
+//			return 3;
+//		}else if(TF.checkStatus.getIntValue("checkLoginStatus")==4){
+//			JOptionPane.showMessageDialog(LoginPanel.this, "当前机号被禁止登录","消息",JOptionPane.OK_OPTION);
+//			statusJson.put("msg", "");
+//			return 3;
+//		}else if(TF.checkStatus.getIntValue("checkLoginStatus")==5){
+//			JOptionPane.showMessageDialog(LoginPanel.this, "当前机号正在使用中,请释放连接后重新登录","消息",JOptionPane.OK_OPTION);
+//			statusJson.put("msg", "");
+//			return 3;
+//		}else if(TF.checkStatus.getIntValue("checkLoginStatus")==2){
+//    		if(TF.dsJson.getString("machineId")==null||TF.dsJson.getString("machineId").equals("")){
+//    			JOptionPane.showMessageDialog(LoginPanel.this, "未发现机号，请连接服务器，注册设备号");
+//    			statusJson.put("msg", "");
+//    			return 3;
+//    		}
+//    		return 1;
+//    	}
+//    	return 3;
+//    }
+    
+    /**
+     * 检测本机时间
+     */
+//    private boolean checksysDate(){
+//		statusJson.put("msg", "正在校对本地时间");
+//        String sysDate=DateTimeUtil.getNowDate();
+//    	try {
+//			JSONObject resultJson=httpClient.operateRequest("get", TF.interfaceBase+"/server/info", null);
+//			if(resultJson.getJSONObject("data")!=null&&resultJson.getJSONObject("data").getString("server_time")!=null){
+//				serverTime=resultJson.getJSONObject("data").getString("server_time");
+//				long changelong=DateTimeUtil.dateDiff(serverTime, sysDate, "yyyy-MM-dd HH:mm:ss", "s");
+//				if(Math.abs(changelong)>=60){
+//					if(btnChangeTime()){
+//						Process p1 = Runtime.getRuntime().exec("taskkill /F /IM tf_db.exe");
+//						int i=p1.waitFor();
+//						if(i==0){
+//							String path=GetProjectRealPath.getPath("tf_db.exe");
+//							File file = new File(path);
+//							try {
+//								Runtime.getRuntime().exec(file.getPath());
+//							} catch (Exception e) {
+//								// TODO Auto-generated catch block
+//								addErrorMsg("数据服务重启异常", "错误信息:"+e.getMessage());
+//								statusJson.put("msg", "");
+//								statusJson.put("status", "3");
+//								log.error("数据服务启动失败");
+//								ExceptionInfoService.insertExceptionData(5, "LoginFrame", "数据服务启动失败", e.getMessage());
+//							}
+//						}
+//						return true;
+//					}else{
+//						statusJson.put("msg", "");
+//						statusJson.put("status", "3");
+//						return false;
+//					}
+//				}else{
+//					return true;
+//				}
+//			}else{
+//				addErrorMsg("获取服务器时间失败", "错误信息:获取服务器时间失败");
+//				statusJson.put("msg", "");
+//				statusJson.put("status", "3");
+//				return false;
+//			}
+//		} catch (Exception e) {
+//			// TODO Auto-generated catch block
+//			addErrorMsg("检测本机时间", "错误信息:"+e.getMessage());
+//			statusJson.put("msg", "");
+//			statusJson.put("status", "3");
+//			return false;
+//		}
+//	}
+    
+//    public boolean synData(long time){
+//    	while(statusJson.getIntValue("status")==2){
+//    		if(System.currentTimeMillis()-time>=30*60*1000){
+//        		return false;
+//        	}
+//	    	JSONArray synArr=new JSONArray();
+//	    	try {
+//				List<Map<String,Object>> list=metaDataBo.queryForListMap("select * from job_timer where JT_STATUS='3' order by JT_ORDER");
+//				if(list!=null&&list.size()>0){
+//					String exceptionId=(String) list.get(0).get("EXCEPTION_ID");
+//					Map map=metaDataBo.queryForMap("select * from tf_exception_record where EXCEPTION_ID='"+exceptionId+"'");
+//					if(map!=null&&map.size()>0){
+//						addErrorMsg((String) map.get("MSG"), "异常数据:"+map.get("DATA_INFO"));
+//					}
+//					statusJson.put("msg", "");
+//					statusJson.put("status", "3");
+//					return false;
+//				}else{
+//					List<Map<String,Object>> list1=metaDataBo.queryForListMap("select * from job_timer where JT_STATUS='1' order by JT_ORDER");
+//					if(list1!=null&&list1.size()>0){
+//						statusJson.put("msg", "同步"+list1.get(0).get("JT_NAME")+"中");
+//						statusJson.put("status", 2);
+//						return false;
+//					}else{
+//						statusJson.put("status", 1);
+//						return true;
+//					}
+//				}
+//			} catch (Exception e) {
+//				// TODO Auto-generated catch block
+//				e.printStackTrace();
+//				addErrorMsg("同步数据异常", e.getMessage());
+//				statusJson.put("msg", "");
+//				statusJson.put("status", "3");
+//				return false;
+//			}
+//    	}
+//    	return true;
+//    }
+    
+//    public int synData(int index){
+//    	JSONArray synArr=new JSONArray();
+//    	try {
+//			List<Map<String,Object>> list=metaDataBo.queryForListMap("select * from job_timer order by JT_ORDER");
+//			for(Map map:list){
+////				if(!synData(map)){
+////					return 2;
+////				}
+//				synArr.add(map);
+//			}
+//			JSONObject json=null;
+//			for(int i=0;i<synArr.size();i++){
+//				Method m=getMethod("synData", new Object[]{new JSONObject()});
+//				Object paras=synArr.getJSONObject(i);
+//				json=new JSONObject();
+//				json.put("method", m);
+//				json.put("paras", paras);
+//				taskArr.add(index++,json);
+//			}
+//		} catch (Exception e) {
+//			// TODO Auto-generated catch block
+//			e.printStackTrace();
+//		}
+//    	return index;
+//    }
+    
+//    public int synData(JSONObject json){
+//    	int status=json.getIntValue("JT_STATUS");
+//    	String tableName=json.getString("JT_NAME");
+//    	statusJson.put("msg", "同步"+tableName+"中...");
+//    	System.out.println("statusJson---"+statusJson);
+//    	if(status==2){
+//    		return 1;
+//    	}else if(status==0||status==1){
+//    		return 2;
+//    	}else if(status==3){
+//    		return 3;
+//    	}
+//    	return 3;
+//    }
+    
+//    public boolean checkLogin(){
+//    	statusJson.put("msg", "校验用户名密码。。。");
+//		UserLogin user=new UserLogin();
+//		//隐性用户用于配置相关信息
+//		try {
+//			if(txt_userName.getText().equals("root") && txt_pwd.getText().equals("root")){
+//				TF.userJson.put("loginType", "0");
+//				TF.userJson.put("uloginno", "root");
+//				TF.userJson.put("uname", "root");
+//				TF.userJson.put("utype", 1);
+//				return true;
+//			}else{
+//				JSONObject checkLoginJson=user.checklogin(txt_userName.getText(), txt_pwd.getText());
+//				boolean islogin =checkLoginJson.getBooleanValue("result");
+//				if(islogin){
+//					TF.userJson=checkLoginJson;
+//					return true;
+//				}else{
+////					JOptionPane.showMessageDialog(LoginPanel.this,checkLoginJson.getString("msg"), "提示",JOptionPane.ERROR_MESSAGE);
+//					addErrorMsg("登陆异常", "错误信息"+checkLoginJson.getString("msg"));
+//					statusJson.put("status", 3);
+//					statusJson.put("msg", "");
+//					return false;
+//				}
+//			}
+//		} catch (Exception e) {
+//			// TODO Auto-generated catch block
+//			e.printStackTrace();
+//			addErrorMsg("登陆异常", "错误信息"+e.getMessage());
+//			statusJson.put("status", 3);
+//			statusJson.put("msg", "");
+//			return false;
+//		}
+////		loginFrame.getBtn_login().addActionListener(listener);
+////		loginFrame.getBtn_login().registerKeyboardAction(listener,KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+//	}
+    
+//    public boolean checkLoginAccess(){
+//    	statusJson.put("msg", "验证用户权限中");
+//    	if(TF.userJson.getIntValue("UTYPE")==0){
+////    		JOptionPane.showMessageDialog(LoginPanel.this, "充值员禁止登陆");
+//    		addErrorMsg("登陆权限异常", "充值元禁止登录");
+//			statusJson.put("status", 3);
+//			statusJson.put("msg", "");
+//			return false;
+////    		return 3;
+//    	}
+////    	return 1;
+//    	return true;
+//    }
+    
+//    public boolean confirmToMainWhenNotOnline(){
+//		int i=JOptionPane.showConfirmDialog(LoginPanel.this, "**未连接上服务器、继续使用将有一定风险**、是否进入系统");
+//		if(i!=0){
+//			statusJson.put("msg", "");
+//			statusJson.put("status", "3");
+//			return false;
+//		}else{
+//			return true;
+//		}
+//    }
+    
+//    public void addTask(){
+//    	int index=0;
+//    	JSONObject checkServerJson=new JSONObject();
+//    	checkServerJson.put("method", getMethod("checkServer", null));
+//		JSONObject checksysDate=new JSONObject();
+//		checksysDate.put("method", getMethod("checksysDate", null));
+////		JSONObject json3=new JSONObject();
+////		json3.put("method", getMethod("synData", null));
+//		JSONObject checkLoginJson=new JSONObject();
+//		checkLoginJson.put("method", getMethod("checkLogin", null));
+//		JSONObject checkLoginAccessJson=new JSONObject();
+//		checkLoginAccessJson.put("method", getMethod("checkLoginAccess", null));
+//		JSONObject confirmToMainWhenNotOnlineJson=new JSONObject();
+//		confirmToMainWhenNotOnlineJson.put("method", getMethod("confirmToMainWhenNotOnline", null));
+//		if(TF.checkStatus.getIntValue("checkStatus")==1){
+//			taskArr.add(index++,checkServerJson);
+//			taskArr.add(index++,checksysDate);
+//			index=synData(index);
+//			taskArr.add(index++,checkLoginJson);
+//			taskArr.add(index++,checkLoginAccessJson);
+//		}else if(TF.checkStatus.getIntValue("checkLoginStatus")==2){
+//			taskArr.add(index++,checkServerJson);
+//			taskArr.add(index++,checkLoginJson);
+//			taskArr.add(index++,confirmToMainWhenNotOnlineJson);
+//			taskArr.add(index++,checkLoginAccessJson);
+//		}
+//		loadingProgressBar.setMaximum(taskArr.size());
+//    }
+    
+//    public void runTask(JSONArray arr){
+//    	System.out.println("runTask-------------------");
+//    	for(int i=0;i<arr.size();i++){
+//    		if(!arr.getJSONObject(i).getBooleanValue("result")){
+//	    		int status=runTask(arr.getJSONObject(i));
+//	    		System.out.println("method---"+arr.getJSONObject(i)+"------------------"+i+"------"+i+"------------+status---"+status);
+//	    		if(status==1){
+////	    			loginFrame.getLoadingProgressBar().setValue(i+1);
+//	    			statusJson.put("percent", i+1);
+//	    			arr.getJSONObject(i).put("result", true);
+//	    		}else if(status==2){
+//	    			i--;
+//	    			arr.getJSONObject(i).put("result", false);
+//	    			continue;
+//	    		}else if(status==3){
+////	    			loginFrame.getLoadingProgressBar().setValue(arr.size());
+//	    			statusJson.put("percent", arr.size());
+//	    			try {
+//						Thread.sleep(100);
+//					} catch (InterruptedException e) {
+//						// TODO Auto-generated catch block
+//						e.printStackTrace();
+//					}
+//	    			cancleTimer();
+//	    			return;
+//	    		}
+//    		}
+////    		loginFrame.getLoadingProgressBar().setValue(i+1);
+//    	}
+//    	cancleTimer();
+//    }
+    
+//    public int runTask(JSONObject json){
+//    	int flag=0;
+//    	try {
+////    		json=arr.getJSONObject(i);
+//    		Method method=(Method) json.get("method");
+//    		Object paras=json.get("paras");
+//    		Object resultObj;
+//    		if(paras==null){
+//    			resultObj= method.invoke(LoginPanel.this,null);
+//    		}else{
+//    			resultObj= method.invoke(LoginPanel.this,paras);//调用o对象的方法
+//    			long time=System.currentTimeMillis();
+//    			if(resultObj instanceof Integer){
+//    	         	   flag=(int) resultObj;
+//    	        }
+//    			if(flag==2){
+//    				return checkIsSynData(json, time);
+//    			}
+//    		}
+//            if(resultObj instanceof Integer){
+//         	   flag=(int) resultObj;
+//            }
+//        } catch (Exception ex) {
+//            return 3;
+//        }
+//    	return flag;
+//    }
+    
+//    public int checkIsSynData(JSONObject json,long time){
+//    	boolean b=false;
+//    	int flag=2;
+//    	while(!b){
+//	    	try {
+//				Method method=(Method) json.get("method");
+//				Object paras=json.get("paras");
+//				Object resultObj= method.invoke(LoginPanel.this,paras);//调用o对象的方法
+//				if(resultObj instanceof Integer){
+//		         	   flag=(int) resultObj;
+//		            }
+//				if(flag==2){
+//					if(System.currentTimeMillis()-time>=15*60*1000){
+//						return 3;
+//					}
+//					Thread.sleep(100);
+//				}else {
+//					return flag;
+//				}
+//				
+//			} catch (Exception e) {
+//				// TODO Auto-generated catch block
+//				return 3;
+//			}
+//    	}return flag;
+//    }
+    
+//    public void cancleTimer(){
+//    	checkStatusTimer.setRepeats(false);
+//		checkStatusTimer.stop();
+//		displayTimer.setRepeats(false);
+//		displayTimer.stop();
+//		LoadTFCache loadTFCache=new LoadTFCache();
+//    }
+    
+//    public Method getMethod(String MethodName,Object []paras){
+//    	Method method=null;
+//          Class c[]=null;
+//          if(paras!=null){//存在
+//              int len=paras.length;
+//              c=new Class[len];
+//              for(int i=0;i<len;++i){
+//                  c[i]=paras[i].getClass();
+//              }
+//          }
+//         try {
+//             method=LoginPanel.this.getClass().getDeclaredMethod(MethodName,c);
+//         } catch (Exception ex) {
+//             ex.printStackTrace();
+//         }
+//         return method;
+//     }
+	
+//    public boolean btnChangeTime(){
+//		int i=JOptionPane.showConfirmDialog(LoginPanel.this, "服务器时间 :\n\t"+serverTime+"\n本地时间 :\n\t"+DateTimeUtil.getNowDate(),"矫正时间",JOptionPane.YES_NO_OPTION);
+//		if(i==0){
+//			try {
+//				boolean b=setComputeDate(serverTime);
+//				if(b){
+////					statusJson.put("value", 66.6);
+////					TF.checkStatus.put("checkSysDate",1);
+//					return true;
+//				}
+//			} catch (Exception e) {
+//				// TODO Auto-generated catch block
+//				addErrorMsg("矫正本机时间异常", "错误信息:"+e.getMessage());
+//				statusJson.put("msg", "");
+//				statusJson.put("status", 3);
+//			}
+//		}else{
+//			statusJson.put("msg", "");
+//			statusJson.put("status", "3");
+//		}
+//		return false;
+//	}
+    
+    /** 
+     * 通过调用本地命令date和time修改计算机时间 
+     * @param date 
+     */  
+//    private boolean setComputeDate(String datetime) throws Exception {  
+//    	Date date=sdf.parse(datetime);
+//        Calendar c = Calendar.getInstance(TimeZone.getTimeZone("GMT+8"));  
+//        c.setTime(date);  
+//        int year = c.get(Calendar.YEAR);  
+//        int month = c.get(Calendar.MONTH) + 1;  
+//        int day = c.get(Calendar.DAY_OF_MONTH);  
+//        int hour = c.get(Calendar.HOUR_OF_DAY);  
+//        int minute = c.get(Calendar.MINUTE);  
+//        int second = c.get(Calendar.SECOND);  
+//  
+//        c.setTime(new Date());  
+//        int year_c = c.get(Calendar.YEAR);  
+//        int month_c = c.get(Calendar.MONTH) + 1;  
+//        int day_c = c.get(Calendar.DAY_OF_MONTH);  
+//        int hour_c = c.get(Calendar.HOUR_OF_DAY);  
+//        int minute_c = c.get(Calendar.MINUTE); 
+//        int second_c=c.get(Calendar.SECOND);
+//  
+//        String ymd = year + "-" + month + "-" + day;  
+//        String time = hour + ":" + minute + ":" + second;  
+//        try {  
+//            // 日期不一致就修改一下日期  
+//            if (year != year_c || month != month_c || day != day_c) {  
+//                String cmd = "cmd /c date " + ymd;  
+//                Process process = Runtime.getRuntime().exec(cmd);  
+//                int i=process.waitFor();  
+//                if(i!=0){
+//                	addErrorMsg("矫正本地时间失败", "错误信息:Runtime.getRuntime().exec("+cmd+")运行错误,错误代号"+i);
+//                	statusJson.put("msg", "");
+//                	statusJson.put("status", 3);
+//                	return false;
+//                }
+//            }  
+//  
+//            // 时间不一致就修改一下时间  
+//            if (hour != hour_c || minute != minute_c||second!=second_c) {  
+//                String cmd = "cmd  /c  time " + time;  
+//                Process process = Runtime.getRuntime().exec(cmd);  
+//                int i=process.waitFor();  
+//                if(i!=0){
+//                	addErrorMsg("矫正本地时间失败", "错误信息:Runtime.getRuntime().exec("+cmd+")运行错误,错误代号"+i);
+//                	statusJson.put("msg", "");
+//                	statusJson.put("status", 3);
+//                	return false;
+//                }
+//            }  
+//        } catch (Exception ex) {  
+//        	ex.printStackTrace();
+//        	addErrorMsg("矫正本地时间失败", "错误信息:"+ex.getMessage());
+//        	statusJson.put("msg", "");
+//        	statusJson.put("status", 3);
+//        	return false;
+//        } 
+//        return true;
+//    } 
+    
+	public JTextField getTxt_userName() {
+		return txt_userName;
+	}
+
+	public void setTxt_userName(JTextField txt_userName) {
+		this.txt_userName = txt_userName;
+	}
+
+	public JPasswordField getTxt_pwd() {
+		return txt_pwd;
+	}
+
+	public void setTxt_pwd(JPasswordField txt_pwd) {
+		this.txt_pwd = txt_pwd;
+	}
+
+	public JButton getBtn_login() {
+		return btn_login;
+	}
+
+	public void setBtn_login(JButton btn_login) {
+		this.btn_login = btn_login;
+	}
+}

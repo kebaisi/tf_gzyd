@@ -1,0 +1,499 @@
+package com.kbs.consume.operations;
+
+import java.util.Map;
+
+import org.apache.log4j.Logger;
+
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.commons.ic.IcUtils;
+import com.kbs.commons.metadata.MetaDataBO;
+import com.kbs.consume.MyException;
+import com.kbs.consume.service.ConsumeService;
+import com.kbs.sys.ExceptionInfoService;
+import com.kbs.util.AudioPlay;
+import com.kbs.util.DateTimeUtil;
+import com.kbs.util.HttpClient;
+import com.kbs.util.SpeakUtil;
+import com.kbs.util.TF;
+
+public class OperationsIcDeduction implements IOperationsDeduction {
+	public Logger logger=Logger.getLogger(OperationsIcDeduction.class);
+	private MetaDataBO metadataBo=new MetaDataBO();
+	IcUtils icUtil=IcUtils.getInstance();
+	private HttpClient httpClient=new HttpClient(5);
+	private JSONObject cashAccountJson=new JSONObject();
+	long priviousTime=0;
+	private boolean flag=false;
+	private SpeakUtil speakUtil=new SpeakUtil();
+	
+	@Override
+	public synchronized boolean deduction(JSONObject jsonObject) {
+		try {
+			ConsumeService consumeService=ConsumeService.getInstance();
+			JSONObject jsonObj;
+			try {
+				jsonObj=icUtil.readIc(TF.icJson);
+			} catch (Throwable e) {
+				return false;
+			}
+			  if(jsonObj!=null&&jsonObj.getBooleanValue("result")){
+				  jsonObj=icUtil.icHexToBin(TF.icJson,jsonObj);
+				  if(jsonObj.getJSONObject("data").getString("IC_ID").equals("0")){
+					  TF.ConsumeJson.put("status", "非法卡");
+					  AudioPlay.playAudio(ConsumeService.ILLEGALCARD);
+//					  speakUtil.speak("非法卡");
+					  Thread.sleep(500);
+					  return false;
+				  }
+				  JSONObject accountJson;
+				  if(TF.checkStatus.getIntValue("checkStatus")==1){
+					  accountJson=showCardInfoFromServer(jsonObj.getJSONObject("data").getString("IC_ID"));
+				  }else{
+					  accountJson=showCardInfo(jsonObj.getJSONObject("data").getString("IC_ID"));
+				  }
+				  if(accountJson==null||accountJson.size()<1){
+					  return false;
+				  }
+				  if(TF.ConsumeJson.getIntValue("stage_type")==1){
+					  if(isCardCanConsume(accountJson)&&checkCardLess(cashAccountJson)){
+						 JSONObject dataJson=consumeData(accountJson);
+						 if(TF.checkStatus.getIntValue("checkStatus")==1){
+							 insertIntoDB(dataJson,0);
+							 System.out.println("dataJson---"+dataJson.toJSONString());
+							 JSONObject resultjson=httpClient.operateRequest("postForm", TF.interfaceBase+"/consume/online", dataJson.toJSONString());
+								if(!resultjson.getBooleanValue("result")){
+//									if(resultjson.getIntValue("type")==10){
+//										JSONObject currentAccountJson=showCardInfoFromServer(jsonObj.getJSONObject("data").getString("IC_ID"));
+//										if(currentAccountJson.getFloatValue("BALANCE")+TF.ConsumeJson.getFloatValue("total_price")==accountJson.getFloatValue("BALANCE")){
+//											TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("ic_id", jsonObj.getJSONObject("data").getString("IC_ID"));
+//											TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("balance",currentAccountJson.getFloatValue("BALANCE"));
+//											insertIntoDB(dataJson,2);
+//											consumeService.payComplement();
+//											icUtil.stopReadCard(TF.icJson);
+//											return true;
+//										}
+//									}else{
+//										TF.ConsumeJson.put("status", resultjson.getString("msg"));
+//										logger.error(resultjson);
+//										return false;
+//									}
+									JSONObject miJson=new JSONObject();
+									miJson.put("COR_ID", dataJson.getJSONObject("data").getJSONObject("tf_consume_order_record").getString("COR_ID"));
+									JSONObject checkJson=httpClient.operateRequest("postForm", TF.interfaceBase+"/member/consume/list", miJson.toJSONString());
+									if(checkJson.getBooleanValue("result")&&checkJson.getJSONArray("data").size()>0){
+										TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("ic_id", resultjson.getJSONObject("cardInfo").getString("IC_ID"));
+										TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("balance",resultjson.getJSONObject("cardInfo").getFloatValue("BALANCE"));
+										JSONObject updateJson=new JSONObject();
+										updateJson.put("CCR_ID", dataJson.getJSONObject("data").getJSONObject("tf_consume_card_record").getString("CCR_ID"));
+										updateJson.put("CCR_STATUS", 2);
+										metadataBo.execute(metadataBo.toSql(updateJson, "tf_consume_card_record", "CCR_ID"));
+										consumeService.payComplement(dataJson);
+										icUtil.stopReadCard(TF.icJson);
+										if(TF.checkStatus.getIntValue("checkStatus")==1){
+											  accountJson=showCardInfoFromServer(jsonObj.getJSONObject("data").getString("IC_ID"));
+										  }else{
+											  accountJson=showCardInfo(jsonObj.getJSONObject("data").getString("IC_ID"));
+										  }
+										return true;
+									}else{
+										return false;
+									}
+								}else{
+									TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("ic_id", resultjson.getJSONObject("cardInfo").getString("IC_ID"));
+									TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("balance",resultjson.getJSONObject("cardInfo").getFloatValue("BALANCE"));
+									JSONObject updateJson=new JSONObject();
+									updateJson.put("CCR_ID", dataJson.getJSONObject("data").getJSONObject("tf_consume_card_record").getString("CCR_ID"));
+									updateJson.put("CCR_STATUS", 2);
+									metadataBo.execute(metadataBo.toSql(updateJson, "tf_consume_card_record", "CCR_ID"));
+									consumeService.payComplement(dataJson);
+									icUtil.stopReadCard(TF.icJson);
+									if(TF.checkStatus.getIntValue("checkStatus")==1){
+										  accountJson=showCardInfoFromServer(jsonObj.getJSONObject("data").getString("IC_ID"));
+									  }else{
+										  accountJson=showCardInfo(jsonObj.getJSONObject("data").getString("IC_ID"));
+									  }
+									return true;
+								}
+						 }else{
+							 insertIntoDB(dataJson,1);
+							 Float currentMoney=accountJson.getFloatValue("BALANCE")-TF.ConsumeJson.getFloatValue("total_price");
+							 metadataBo.execute("update tf_member_account_record set BALANCE='"+currentMoney+"' where ACCOUNT_ID='"+accountJson.getString("ACCOUNT_ID")+"'");
+							 consumeService.payComplement(dataJson);
+							 icUtil.stopReadCard(TF.icJson);
+//							 if(TF.checkStatus.getIntValue("checkStatus")==1){
+//								  accountJson=showCardInfoFromServer(jsonObj.getJSONObject("data").getString("IC_ID"));
+//							  }else{
+								  accountJson=showCardInfo(jsonObj.getJSONObject("data").getString("IC_ID"));
+//							  }
+							 return true;
+						 }
+					  }
+				  }else{
+					  if(!flag){
+						  flag=true;
+						  String price=((TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").getString("balance").indexOf(".0")!=-1)?TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").getString("balance").substring(0, TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").getString("balance").indexOf(".0")):TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").getString("balance"));
+	//					  TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").getString("balance");
+//						  AudioPlay.speak("卡余"+price+"元");
+						  if(TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").getFloatValue("balance")<=20)
+						  speakUtil.speak("卡余"+price+"元");
+						  Thread.sleep(500);
+					  }
+				  }
+				  
+				}else{
+					flag=false;
+					if(TF.ConsumeJson.getIntValue("stage_type")==0){
+						  clearCardInfoInPage();
+					  }else if(TF.ConsumeJson.getIntValue("stage_type")==1){
+						  if(RfidThread.isOnSale)
+						  TF.ConsumeJson.put("status", "请支付");
+						  clearCardInfoInPage();
+					  }
+				}
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			String msg=e.getMessage().length()>100?e.getMessage().substring(0, 100):e.getMessage();
+			logger.error("deduction方法出现异常"+msg);
+			return false;
+		}
+			  
+		return false;
+	}
+	
+	public static void main(String[] args) {
+		OperationsIcDeduction test=new OperationsIcDeduction();
+//		test.deduction();
+	}
+	
+	/**
+	 * 清除页面中的卡信息
+	 * @param saleFrame
+	 * @throws MyException
+	 */
+	public void clearCardInfoInPage(){
+		TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("ic_id", "");
+		TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("balance", "");
+		TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("serial_number", "");
+	}
+	
+	
+	/**
+	 * 扣费判断
+	 * @param jsonObject
+	 * @return
+	 */
+//	public boolean cardLess(JSONObject jsonObject){
+//		boolean f =true;
+//		String displayStatus = "";
+//		try {
+//				if(TF.ConsumeJson.getFloatValue("total_price")>200){
+//					logger.info("消费金额超过200");
+//					displayStatus = "单次消费金额超过200";
+//					f=false;
+////					AudioPlay.playAudio(ConsumeMain.FILE_MONEYISNOTENOUGH);
+//					TF.ConsumeJson.put("status",displayStatus);
+//					AudioPlay.playAudio(ConsumeService.FILE_CONSUMEFILED);
+//					return false;
+//				}
+//				if(TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").getFloatValue("balance")-TF.ConsumeJson.getFloatValue("total_price")<0){
+//					logger.info("卡余额不足");
+//					displayStatus = "余额不足!";
+//					TF.ConsumeJson.put("status", displayStatus);
+//					f=false;
+//					AudioPlay.playAudio(ConsumeService.FILE_MONEYISNOTENOUGH);
+//				}
+////				TF.ConsumeJson.put("status", displayStatus);
+//		} catch (NumberFormatException e1) {
+//			// TODO Auto-generated catch block
+//			TF.ConsumeJson.put("status", "服务异常");
+//			logger.error("卡号"+jsonObject.getJSONObject("data").getString("IC_ID")+"扣费判断时数据转换异常");
+//			ExceptionInfoService.insertExceptionData(1, "OperationsIcDeduction", "卡号"+jsonObject.getJSONObject("data").getString("IC_ID")+"扣费判断时数据转换异常", e1.getMessage());
+//			return false;
+//		}
+//		return f;
+//	}
+	
+	/**
+	 * 扣费判断
+	 * @param jsonObject
+	 * @return
+	 */
+	public boolean checkCardLess(JSONObject accountJson){
+		boolean f =true;
+		String displayStatus = "";
+		try {
+				if(TF.ConsumeJson.getFloatValue("total_price")>200){
+					f=false;
+//					AudioPlay.playAudio(ConsumeMain.FILE_MONEYISNOTENOUGH);
+					if(System.currentTimeMillis()-priviousTime<1500){
+						return false;
+					}
+					logger.info("消费金额超过200");
+					displayStatus = "单次消费金额超过200";
+					TF.ConsumeJson.put("status",displayStatus);
+					AudioPlay.playAudio(ConsumeService.FILE_CONSUMEFILED);
+//					speakUtil.speak("扣费失败");
+					priviousTime=System.currentTimeMillis();
+					return false;
+				}
+				if(TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").getFloatValue("balance")-TF.ConsumeJson.getFloatValue("total_price")<0){
+					f=false;
+					if(System.currentTimeMillis()-priviousTime<1500){
+						return false;
+					}
+					logger.info("余额不足");
+					displayStatus = "余额不足!";
+					TF.ConsumeJson.put("status", displayStatus);
+//					AudioPlay.playAudio(ConsumeService.FILE_MONEYISNOTENOUGH);
+					speakUtil.speak("卡余额不足");
+					priviousTime=System.currentTimeMillis();
+				}
+//				TF.ConsumeJson.put("status", displayStatus);
+		} catch (NumberFormatException e1) {
+			// TODO Auto-generated catch block
+			TF.ConsumeJson.put("status", "服务异常");
+			String msg=e1.getMessage().length()>100?e1.getMessage().substring(0, 100):e1.getMessage();
+			logger.error("卡号"+accountJson.getString("IC_ID")+"扣费判断时数据转换异常"+msg);
+			ExceptionInfoService.insertExceptionData(1, "OperationsIcDeduction", "卡号"+accountJson.getString("IC_ID")+"扣费判断时数据转换异常", e1.getMessage());
+			return false;
+		}
+		return f;
+	}
+	
+	/**
+	 * 查询卡信息
+	 * @param saleFrame
+	 * @param jsonObject
+	 * @throws MyException
+	 */
+	public JSONObject showCardInfo(String ic_id) throws Exception{
+		try {
+			Map<String,Object> cardMap=metadataBo.queryForMap("select * from tf_cardinfo where IC_ID="+ic_id);
+			if(cardMap==null||cardMap.size()<1){
+				TF.ConsumeJson.put("status", "服务异常");
+				logger.info("卡号"+ic_id+"不在本地数据库中");
+				ExceptionInfoService.insertExceptionData(1, "OperationsIcDeduction", "卡号"+ic_id+"服务异常", "");
+				return null;
+			}
+			Map<String,Object> cashAccountMap=metadataBo.queryForMap("select * from tf_member_account_record where MI_ID='"+cardMap.get("MI_ID")+"' and ACCOUNT_TYPE='0'");
+			if(cashAccountMap==null||cashAccountMap.size()<1){
+				TF.ConsumeJson.put("status", "服务异常");
+				logger.info("会员"+cardMap.get("MI_ID")+"现金账户不在本地数据库中");
+				ExceptionInfoService.insertExceptionData(1, "OperationsIcDeduction", "会员"+cardMap.get("MI_ID")+"服务异常", "");
+				return null;
+			}
+//			cashAccountMap.put("IC_ID", jsonObject.getJSONObject("data").getString("IC_ID"));
+			cashAccountJson=new JSONObject();
+			for(String key:cardMap.keySet()){
+				cashAccountJson.put(key, cardMap.get(key));
+			}
+			for(String key:cashAccountMap.keySet()){
+				cashAccountJson.put(key, cashAccountMap.get(key));
+			}
+			String str=cashAccountJson.get("BALANCE")+"";
+				Float f=Float.parseFloat(str);
+				TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("ic_id", ic_id);
+				TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("balance",Float.parseFloat(cashAccountJson.get("BALANCE")+""));	
+			} catch (NumberFormatException e) {
+				// TODO Auto-generated catch block
+				String msg=e.getMessage().length()>100?e.getMessage().substring(0, 100):e.getMessage();
+				logger.error("营业界面展示卡信息失败"+msg);
+			}
+			return cashAccountJson;
+		}
+	
+	
+	public  boolean isCardCanConsume(JSONObject cashAccountJson) throws Exception{
+		if(cashAccountJson==null||cashAccountJson.toJSONString().equals("")||cashAccountJson.toJSONString().equals("{}")){
+			clearCardInfoInPage();
+			return false;
+		}
+		if(!cashAccountJson.getString("IC_STATUS").equals("0")){
+			if(cashAccountJson.getString("IC_STATUS").equals("1")){
+				TF.ConsumeJson.put("status", "该卡已挂失，需回收！");
+				AudioPlay.playAudio(ConsumeService.FILE_LOSTCARD);
+//				speakUtil.speak("挂失卡");
+				logger.info("卡号"+cashAccountJson.getString("IC_ID")+"此卡为挂失卡");
+//				ExceptionInfoService.insertExceptionData(1, "OperationsIcDeduction", "卡号"+cardJson.getString("IC_ID")+"此卡为挂失卡", "");
+				Thread.sleep(1000);
+				return false;
+			}else if(cashAccountJson.getString("IC_STATUS").equals("2")){
+				TF.ConsumeJson.put("status", "该卡已注销");
+				logger.info("卡号"+cashAccountJson.getString("IC_ID")+"该卡已注销");
+//				AudioPlay.playAudio(ConsumeService.FILE_CANCLECARD);
+				speakUtil.speak("注销卡");
+				Thread.sleep(1000);
+				return false;
+			}
+		}
+		
+		if(!cashAccountJson.getString("ACCOUNT_STATUS").equals("0")){
+			if(cashAccountJson.getString("ACCOUNT_STATUS").equals("1")){
+				TF.ConsumeJson.put("status", "已被冻结账户!");
+//				AudioPlay.playAudio(ConsumeService.FILE_LOSTCARD);
+				logger.info("会员ID"+cashAccountJson.getString("MI_ID")+"此账户冻结");
+//				ExceptionInfoService.insertExceptionData(1, "OperationsIcDeduction", "卡号"+cardJson.getString("IC_ID")+"此卡为挂失卡", "");
+				Thread.sleep(1000);
+				return false;
+			}else if(cashAccountJson.getString("ACCOUNT_STATUS").equals("2")){
+				TF.ConsumeJson.put("status", "已被注销账户!");
+				logger.info("会员ID"+cashAccountJson.getString("MI_ID")+"此账户注销");
+//				AudioPlay.playAudio(ConsumeService.FILE_CANCLECARD);
+				Thread.sleep(1000);
+				return false;
+			}
+		}
+		return true;
+	}
+	
+	/**
+	 * 从服务器查询卡信息
+	 * @param saleFrame
+	 * @param jsonObject
+	 * @throws MyException
+	 */
+	public JSONObject showCardInfoFromServer(String ic_id) throws Exception{
+		JSONObject accountJson=httpClient.operateRequest("get", TF.interfaceBase+"/card/account/"+ic_id, null);
+		if(accountJson.getBooleanValue("result")){
+			JSONArray dataArray=accountJson.getJSONArray("data");
+			for(int i=0;i<dataArray.size();i++){
+				if(dataArray.getJSONObject(i).getString("ACCOUNT_TYPE").equals("0")){
+					cashAccountJson=dataArray.getJSONObject(i);
+				}
+			}
+		}
+		try {
+			TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("ic_id", ic_id);
+			TF.ConsumeJson.getJSONObject("deduction").getJSONObject("card").put("balance",cashAccountJson.getFloatValue("BALANCE"));	
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			String msg=e.getMessage().length()>100?e.getMessage().substring(0, 100):e.getMessage();
+			logger.error("营业界面展示卡信息失败"+msg);
+		}
+		return cashAccountJson;
+	}
+	
+	public JSONObject transferCardInfo(JSONObject jsonObj){
+		jsonObj.put("CREATETIME", DateTimeUtil.changeMillsToTime(jsonObj.getLongValue("CREATETIME")));
+		jsonObj.put("UPDATETIME", DateTimeUtil.changeMillsToTime(jsonObj.getLongValue("UPDATETIME")));
+		return jsonObj;
+	}
+	
+	/**
+	 * 组装数据
+	 * @param jsonObj
+	 * @return
+	 */
+	public JSONObject consumeData(JSONObject jsonObj){
+		JSONObject dataJson=new JSONObject();
+		JSONObject orderMap=new JSONObject();
+		orderMap.put("COR_ID", TF.storeJson.getString("STORE_CODE")+TF.dsJson.getString("machineId")+metadataBo.queryForArray("select _nextval('tf_consume_order_record')")[0]);
+		TF.ConsumeJson.put("cor_id", orderMap.get("COR_ID"));
+		orderMap.put("CREATETIME", DateTimeUtil.getNowDate());
+		orderMap.put("COR_AMOUNT", TF.ConsumeJson.getString("total_num"));
+//		orderMap.put("COR_TYPE", "0");
+		orderMap.put("MACHINE_NO", TF.dsJson.getString("machineId"));
+		orderMap.put("COR_MONERY", TF.ConsumeJson.getString("total_price"));
+		orderMap.put("U_ID", TF.userJson.getString("U_ID"));
+		dataJson.put("data", new JSONObject());
+		dataJson.getJSONObject("data").put("tf_consume_order_record", orderMap);
+		dataJson.getJSONObject("data").put("tf_consume_details_record", new JSONArray());
+		for(String id:TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").keySet()){
+			 if(TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").getJSONObject(id).getIntValue("pay_status")==1)
+				  continue;
+				  JSONObject detailsJson=new JSONObject();
+				  String cdrType=TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").getJSONObject(id).getString("CDR_TYPE");
+				  detailsJson.put("CDR_ID", TF.storeJson.getString("STORE_CODE")+TF.dsJson.getString("machineId")+metadataBo.queryForArray("select _nextval('tf_consume_details_record')")[0]);
+				  detailsJson.put("COR_ID", orderMap.get("COR_ID"));
+				  detailsJson.put("CREATETIME", orderMap.get("CREATETIME"));
+				  detailsJson.put("CDR_UNIT_PRICE", TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").getJSONObject(id).getString("price"));
+				  detailsJson.put("CDR_NUMBER", "1");
+				  detailsJson.put("CDR_MONEY", detailsJson.getString("CDR_UNIT_PRICE"));
+				  if(cdrType.equals("4")){
+					  detailsJson.put("CDR_NO", TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").getJSONObject(id).getString("dishId"));
+				  }else{
+					  detailsJson.put("CDR_NO", id);
+				  }
+				  detailsJson.put("CDR_TYPE", cdrType);
+				  dataJson.getJSONObject("data").getJSONArray("tf_consume_details_record").add(detailsJson);
+		 }
+		for(String id:TF.ConsumeJson.getJSONObject("valuation").getJSONObject("handwork").getJSONObject("view").keySet()){
+			 if(TF.ConsumeJson.getJSONObject("valuation").getJSONObject("handwork").getJSONObject("view").getJSONObject(id).getIntValue("pay_status")==1)
+				  continue;
+				  JSONObject detailsJson=new JSONObject();
+				  detailsJson.put("CDR_ID", TF.storeJson.getString("STORE_CODE")+TF.dsJson.getString("machineId")+metadataBo.queryForArray("select _nextval('tf_consume_details_record')")[0]);
+				  detailsJson.put("COR_ID", orderMap.get("COR_ID"));
+				  detailsJson.put("CREATETIME", orderMap.get("CREATETIME"));
+				  detailsJson.put("CDR_UNIT_PRICE", TF.ConsumeJson.getJSONObject("valuation").getJSONObject("handwork").getJSONObject("view").getJSONObject(id).getString("price"));
+				  detailsJson.put("CDR_NUMBER", "1");
+				  detailsJson.put("CDR_MONEY", detailsJson.getString("CDR_UNIT_PRICE"));
+				  detailsJson.put("CDR_NO", id);
+				  detailsJson.put("CDR_TYPE", 1);
+				  dataJson.getJSONObject("data").getJSONArray("tf_consume_details_record").add(detailsJson);
+		 }
+		for(String id:TF.ConsumeJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").keySet()){
+			 if(TF.ConsumeJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").getJSONObject(id).getIntValue("pay_status")==1)
+				  continue;
+				  JSONObject detailsJson=new JSONObject();
+				  detailsJson.put("CDR_ID", TF.storeJson.getString("STORE_CODE")+TF.dsJson.getString("machineId")+metadataBo.queryForArray("select _nextval('tf_consume_details_record')")[0]);
+				  detailsJson.put("COR_ID", orderMap.get("COR_ID"));
+				  detailsJson.put("CREATETIME", orderMap.get("CREATETIME"));
+				  detailsJson.put("CDR_UNIT_PRICE", TF.ConsumeJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").getJSONObject(id).getString("price"));
+				  detailsJson.put("CDR_NUMBER", TF.ConsumeJson.getJSONObject("valuation").getJSONObject("commodity").getJSONObject("view").getJSONObject(id).getIntValue("num"));
+				  detailsJson.put("CDR_MONEY", detailsJson.getFloatValue("CDR_UNIT_PRICE")*detailsJson.getIntValue("CDR_NUMBER"));
+				  detailsJson.put("CDR_NO", id);
+				  detailsJson.put("CDR_TYPE", 2);
+				  dataJson.getJSONObject("data").getJSONArray("tf_consume_details_record").add(detailsJson);
+		 }
+		JSONObject consumeCardMap=new JSONObject();
+		consumeCardMap.put("CCR_ID",TF.storeJson.getString("STORE_CODE")+TF.dsJson.getString("machineId")+metadataBo.queryForArray("select _nextval('tf_consume_card_record')")[0]);
+		consumeCardMap.put("IC_ID",jsonObj.getString("IC_ID"));
+		try {
+			consumeCardMap.put("IC_SERIAL_NUMBER",Long.parseLong(jsonObj.getString("IC_SERIAL_NUMBER"),16)+"");
+		} catch (NumberFormatException e1) {
+			// TODO Auto-generated catch block
+			String msg=e1.getMessage().length()>100?e1.getMessage().substring(0, 100):e1.getMessage();
+			logger.error("卡号"+jsonObj.getString("IC_SERIAL_NUMBER")+"转换成16进制出现异常"+msg);
+			ExceptionInfoService.insertExceptionData(1, "OperationIcDeduction", "卡号"+jsonObj.getString("IC_SERIAL_NUMBER")+"转换成16进制出现异常", e1.getMessage());
+			consumeCardMap.put("IC_SERIAL_NUMBER",jsonObj.getString("IC_SERIAL_NUMBER"));
+		}
+		consumeCardMap.put("U_ID", TF.userJson.getString("U_ID"));
+		consumeCardMap.put("CCR_ORIGINALAMOUNT",jsonObj.getString("BALANCE"));
+		consumeCardMap.put("CCR_MONEY",TF.ConsumeJson.getFloatValue("total_price"));
+		consumeCardMap.put("CREATETIME",DateTimeUtil.getNowDate());
+		consumeCardMap.put("COR_ID",TF.ConsumeJson.getString("cor_id"));
+		consumeCardMap.put("MT_ID", TF.currentMealTimes);
+		consumeCardMap.put("MACHINE_NO", TF.dsJson.getString("machineId"));
+		consumeCardMap.put("CCR_PAY_TYPE", 0);
+		consumeCardMap.put("CCR_DATABASE_STATUS", "0");
+		consumeCardMap.put("CCR_UPLOAD_STATUS", "0");
+		consumeCardMap.put("ACCOUNT_ID", jsonObj.getString("ACCOUNT_ID"));
+		consumeCardMap.put("MI_ID", jsonObj.getString("MI_ID"));
+		consumeCardMap.put("ISM_STATUS", "0");
+		dataJson.getJSONObject("data").put("tf_consume_card_record", consumeCardMap);
+		dataJson.put("machine_no", consumeCardMap.getString("MACHINE_NO"));
+		dataJson.put("IC_ID", consumeCardMap.getString("IC_ID"));
+		dataJson.put("MONEY", consumeCardMap.getString("CCR_MONEY"));
+		return dataJson;
+	}
+	
+	/**
+	 * 入库
+	 * @param dataJson
+	 */
+	public void insertIntoDB(JSONObject dataJson,int status){
+//		if(TF.checkStatus.getIntValue("checkStatus")==1){
+//			dataJson.getJSONObject("data").getJSONObject("tf_consume_card_record").put("CCR_STATUS",2);
+//		}else{
+			dataJson.getJSONObject("data").getJSONObject("tf_consume_card_record").put("CCR_STATUS",status);
+//		}
+		metadataBo.execute(metadataBo.toSql(dataJson.getJSONObject("data").getJSONObject("tf_consume_card_record"), "tf_consume_card_record"));
+		metadataBo.execute(metadataBo.toSql(dataJson.getJSONObject("data").getJSONObject("tf_consume_order_record"), "tf_consume_order_record"));
+		for(Object obj:dataJson.getJSONObject("data").getJSONArray("tf_consume_details_record")){
+			metadataBo.execute(metadataBo.toSql((JSONObject)obj, "tf_consume_details_record"));
+		}
+	}
+}
+

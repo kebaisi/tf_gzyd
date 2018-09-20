@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="lib" path="commons-codec-20041127.091804.jar"/>
+	<classpathentry kind="lib" path="commons-dbutils-1.6.jar"/>
+	<classpathentry kind="lib" path="commons-httpclient-3.1.jar"/>
+	<classpathentry kind="lib" path="commons-httpclient-3.1.SONATYPE.jar"/>
+	<classpathentry kind="lib" path="commons-lang-20030203.000129.jar"/>
+	<classpathentry kind="lib" path="commons-logging-1.1.1.jar"/>
+	<classpathentry kind="lib" path="druid-1.0.9.jar"/>
+	<classpathentry kind="lib" path="druid-wrapper-0.2.9.jar"/>
+	<classpathentry kind="lib" path="fastjson-1.1.34.jar"/>
+	<classpathentry kind="lib" path="HTTPClient-0.3-3.jar"/>
+	<classpathentry kind="lib" path="jackson-all-1.8.5.jar"/>
+	<classpathentry kind="lib" path="log4j-1.2.15.jar"/>
+	<classpathentry kind="lib" path="mysql-connector-java-5.1.9.jar"/>
+	<classpathentry kind="lib" path="RXTXcomm.jar"/>
+	<classpathentry kind="lib" path="tf-commons-ic.jar"/>
+	<classpathentry kind="lib" path="tf-commons-jdbc.jar"/>
+	<classpathentry kind="lib" path="tf-commons-serialport.jar"/>
+	<classpathentry kind="lib" path="tf-commons-rfid.jar"/>
+	<classpathentry kind="lib" path="tf-commons-tools.jar"/>
+	<classpathentry kind="lib" path="httpclient-4.5.jar"/>
+	<classpathentry kind="lib" path="httpcore-4.4.1.jar"/>
+	<classpathentry kind="lib" path="httpmime-4.5.jar"/>
+	<classpathentry kind="lib" path="cashbox.jar"/>
+	<classpathentry kind="lib" path="beautyeye_lnf.jar"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>

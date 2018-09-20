@@ -1,0 +1,29 @@
+package com.kbs.test;
+
+import java.io.FileNotFoundException;
+import java.io.PrintWriter;
+import java.util.Properties;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.commons.rfid.RfidUtils;
+import com.kbs.commons.util.PropertiesUtil;
+
+public class test {
+public static void main(String[] args) {
+	//Windows             
+	try {                 
+		PrintWriter pw = new PrintWriter("lpt1");                
+//			//普通打印                
+//			pw.write("English-Windows"+"n");                 
+//			pw.write("中文-Windows"+"n");                 
+		//打印机开钱箱指令                
+		char[] c = {27,'p',0,60,240};                
+		pw.write(c);                
+		pw.write("n");                 
+		pw.flush();     
+		} catch (FileNotFoundException ex) {                 
+//			Logger.getLogger(OperationsCashDeduction.class.getName()).log(null, ex);             
+		} 
+}
+}

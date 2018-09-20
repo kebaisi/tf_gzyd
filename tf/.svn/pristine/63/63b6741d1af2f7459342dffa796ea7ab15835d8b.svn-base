@@ -1,0 +1,370 @@
+package com.kbs.consume.operations;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.log4j.Logger;
+
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.commons.rfid.RfidUtils;
+import com.kbs.consume.MyException;
+import com.kbs.consume.service.ConsumeService;
+import com.kbs.sys.ExceptionInfoService;
+import com.kbs.sys.LoadTFCache;
+import com.kbs.util.AudioPlay;
+import com.kbs.util.DataConvertUtil;
+import com.kbs.util.DateTimeUtil;
+import com.kbs.util.SpeakUtil;
+import com.kbs.util.TF;
+
+public class OperationsAutoValuation implements IOperationsValuation {
+	private Logger logger=Logger.getLogger(OperationsAutoValuation.class);
+	private List<String> rfidList = new ArrayList<String>();
+	private SpeakUtil speakUtil=new SpeakUtil();
+	@Override
+	public synchronized void valuation() throws MyException {
+//		rfidList = new ArrayList<String>();
+		OperateByRfid(TF.rfidJson);
+	}
+	
+	public List<String> getNotConsumed(){
+		List<String> cacheNoConsumeList=new ArrayList<String>();
+		JSONObject jsonObject=null;
+		if(TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view")!=null){
+			jsonObject=TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view");
+		}else{
+			return cacheNoConsumeList;
+		}
+		for(String key:jsonObject.keySet()){
+			if(jsonObject.getJSONObject(key).getIntValue("pay_status")==0&&jsonObject.getJSONObject(key).getIntValue("gd_status")==0){
+				cacheNoConsumeList.add(key);
+			}
+		}
+		return cacheNoConsumeList;
+	}
+	
+	/**
+	 * 检查当前芯片是否存在缓存中
+	 * @param rfidJSON
+	 * @return
+	 */
+	public boolean checkRfidCacheData(JSONObject rfidRuleJson) throws MyException{
+		List<String> cacheNoConsumeList=getNotConsumed();
+		JSONObject jsonObject=null;
+		if(TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view")!=null){
+			jsonObject=TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view");
+		}else{
+			TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").put("view", new JSONObject());
+			TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").put("price", "0.0");
+			TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").put("num", "0");
+		}
+		if((rfidList==null || rfidList.size()==0) && jsonObject.keySet().size()==0){
+			if(TF.ConsumeJson.getIntValue("total_num")==0){
+				TF.ConsumeJson.put("stage_type", 0);
+				TF.ConsumeJson.put("status", "请放托盘");
+			}
+			return false;
+		}
+		
+		
+		
+		if(rfidList.size()==jsonObject.keySet().size()){
+			if(rfidList.containsAll(jsonObject.keySet())){
+				return false;
+			}
+		}
+		if(cacheNoConsumeList.size()!=0 && (rfidList.size()==0||!rfidList.containsAll(cacheNoConsumeList))){
+			while (true) {
+				if(TF.ConsumeJson.getIntValue("stage_type")==2){
+					return true;
+				}
+				TF.ConsumeJson.put("stage_type", 0);
+				TF.ConsumeJson.put("status", "未付款");
+				AudioPlay.playAudio(ConsumeService.FILE_NOTPAY);
+//				speakUtil.speak("未付款");
+				rfidList=readPanel(rfidRuleJson);
+				if(rfidList!=null&&(rfidList.containsAll(cacheNoConsumeList) || TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getIntValue("num")==0)){
+					return true;
+				}
+				try {
+					Thread.sleep(500);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			
+			
+		}
+		return true;
+		
+	}
+	
+	/**
+	 * 检测芯片是否为非法餐盘或禁用餐盘
+	 * @return
+	 */
+	public boolean checkChip(){
+		for(String chipNo:rfidList){
+			if(!TF.chipJson.getJSONObject("chipinfo").containsKey(chipNo)){
+				
+				TF.ConsumeJson.put("status", "发现未授权餐盘");
+				AudioPlay.playAudio(ConsumeService.NOTACCEPTPANEL);
+//				speakUtil.speak("未授权餐盘");
+				try {
+					Thread.sleep(500);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+				return false;
+			}else {
+				if(TF.chipJson.getJSONObject("category").getJSONObject(TF.chipJson.getJSONObject("chipinfo").getJSONObject(chipNo).getString("CG_ID")).getIntValue("USE_STATUS")==1){
+					TF.ConsumeJson.put("status", "发现禁用餐盘");
+//					AudioPlay.playAudio(ConsumeService.FILE_DISABLEPANEL);
+					speakUtil.speak("禁用餐盘");
+					try {
+						Thread.sleep(500);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+	
+	/**
+	 * rfid操作流程
+	 * @param commUtil
+	 * @throws MyException
+	 */
+	public void OperateByRfid(JSONObject rfidRuleJson) throws MyException{
+		try {
+			rfidList=readPanel(rfidRuleJson);
+			if(rfidList==null){
+				return;
+			}
+			TF.ConsumeJson.put("machine_no", TF.dsJson.getString("machineId"));
+			TF.ConsumeJson.put("mealtime", TF.currentMealTimes);
+			if(!checkRfidCacheData(rfidRuleJson)){
+				return;
+			}
+			if(!checkChip()){
+				TF.ConsumeJson=JSONObject.parseObject("{\"status\": \"请放托盘\",\"isPrint\":\"0\",\"total_price\": \"0.0\",\"total_num\": \"0\",\"mealtime\":\"0\",\"stage_type\":0,\"machine_no\":\"\",\"cor_id\":\"\",\"valuation\": {\"auto\": {\"price\":\"0.0\",\"num\":\"0\",\"view\":{}},\"commodity\": {\"price\":\"0.0\",\"num\":\"0\",\"view\":{}},\"handwork\": {\"price\":\"0.0\",\"num\":\"0\",\"view\":{}}},\"deduction\":{\"card\":{\"ic_id\":\"\",\"balance\":\"\",\"serial_number\":\"\"},\"cash\":{\"real_price\":\"0.0\",\"dispenser\":\"0.0\"}}}");
+				TF.ConsumeJson.put("stage_type", 0);
+				return;
+			}
+			if(!loadConsumeData()){
+				return;
+			}
+			if(TF.ConsumeJson.getIntValue("stage_type")==2){
+				LoadTFCache.clearConsumeCache();
+			}
+			if(getNotConsumed().size()<=0||TF.ConsumeJson.getFloatValue("total_price")==0.0)
+				return;
+			TF.ConsumeJson.put("status", "请支付");
+//			if(TF.ConsumeJson.getIntValue("total_num")<=5||TF.ConsumeJson.getFloatValue("total_price")<=20){
+				AudioPlay.playAudio(ConsumeService.FILE_PLEASESETCARD);
+//			}else{
+//				String price=((TF.ConsumeJson.getString("total_price").indexOf(".0")!=-1)?TF.ConsumeJson.getString("total_price").substring(0, TF.ConsumeJson.getString("total_price").indexOf(".0")):TF.ConsumeJson.getString("total_price"));
+//				AudioPlay.speak("请付"+price+"元");
+////				speakUtil.speak("请付"+price+"元");
+//			}
+			TF.ConsumeJson.put("stage_type", 1);
+		} catch (Exception e1) {
+			// TODO Auto-generated catch block
+//			String msg=e1.getMessage().length()>100?e1.getMessage().substring(0, 100):e1.getMessage();
+//			logger.error("计价出现异常"+msg);
+//			ExceptionInfoService.insertExceptionData(0, "OperationAutoValuation", "计价出现异常", e1.getMessage());
+//			throw new MyException();
+			e1.printStackTrace();
+		}
+		try {
+			Thread.sleep(100);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			logger.error("当前计价完成sleep过程中发生错误");
+			ExceptionInfoService.insertExceptionData(0, "OperationsAutoValuation", "当前计价完成sleep过程中发生错误", e.getMessage());
+		}
+	}
+	
+	
+	/**
+	 * type:
+	 * 	1:未注册芯片
+	 * 	2:没有价格信息
+	 *  3:禁用芯片
+	 * @param rfidList
+	 * @return
+	 * @throws MyException
+	 */
+	public boolean loadConsumeData() throws MyException{
+		int payStatus=1;
+		JSONObject resultJSON=new JSONObject();
+		if(TF.ConsumeJson.getIntValue("gd_status")==1){
+			return false;
+		}
+		int num=0;
+		float sum=(float)0.0;
+		resultJSON.put("view", new JSONObject());
+		resultJSON.put("result", true);
+		long start=System.currentTimeMillis();
+		for(String key:rfidList){
+			resultJSON.getJSONObject("view").put(key, new JSONObject());
+			String cgid=TF.chipJson.getJSONObject("chipinfo").getJSONObject(key).getString("CG_ID");
+			boolean flag=false;
+//			System.out.println(TF.chipJson.toJSONString());
+			if(TF.chipJson.getJSONObject("dishlist").isEmpty()){
+				resultJSON.getJSONObject("view").getJSONObject(key).put("CDR_TYPE", 0);
+				resultJSON.getJSONObject("view").getJSONObject(key).put("use_status", TF.chipJson.getJSONObject("category").getJSONObject(cgid).getIntValue("USE_STATUS"));
+				resultJSON.getJSONObject("view").getJSONObject(key).put("cgname", TF.chipJson.getJSONObject("category").getJSONObject(cgid).getString("CG_NAME"));
+//				resultJSON.getJSONObject("view").getJSONObject(key).put("price", "0.0");
+//				System.out.println( TF.chipJson.toJSONString());
+				resultJSON.getJSONObject("view").getJSONObject(key).put("price", TF.chipJson.getJSONObject("chipprice").getJSONObject(TF.currentMealTimes).getJSONObject(cgid).getString("PRICE"));
+			}else{
+				System.out.println(cgid);
+				System.out.println(TF.chipJson.getJSONObject("dishlist").toJSONString());
+				System.out.println(TF.chipJson.getJSONObject("dishlist").getJSONObject(TF.currentMealTimes).toJSONString());
+				System.out.println(TF.chipJson.getJSONObject("dishlist").getJSONObject(TF.currentMealTimes).getJSONObject(cgid).toJSONString());
+				String dish_id = TF.chipJson.getJSONObject("dishlist").getJSONObject(TF.currentMealTimes).getJSONObject(cgid).getString("DISH_ID");
+				resultJSON.getJSONObject("view").getJSONObject(key).put("CDR_TYPE", 4);
+				resultJSON.getJSONObject("view").getJSONObject(key).put("use_status", TF.chipJson.getJSONObject("dishlist").getJSONObject(TF.currentMealTimes).getJSONObject(cgid).getIntValue("USE_STATUS"));
+				resultJSON.getJSONObject("view").getJSONObject(key).put("cgname", TF.chipJson.getJSONObject("dish").getJSONObject(TF.chipJson.getJSONObject("dishlist").getJSONObject(TF.currentMealTimes).getJSONObject(cgid).getString("DISH_ID")).getString("DISH_NAME"));
+				resultJSON.getJSONObject("view").getJSONObject(key).put("price", TF.chipJson.getJSONObject("dish").getJSONObject(TF.chipJson.getJSONObject("dishlist").getJSONObject(TF.currentMealTimes).getJSONObject(cgid).getString("DISH_ID")).getString("PRICE"));
+			}
+			if(TF.preConsumeJson.containsKey(key)){
+				resultJSON.getJSONObject("view").getJSONObject(key).put("pay_status", 1);
+				payStatus*=1;
+			}else{
+				resultJSON.getJSONObject("view").getJSONObject(key).put("pay_status", 0);
+				sum+=resultJSON.getJSONObject("view").getJSONObject(key).getFloatValue("price");
+				num++;
+				payStatus*=0;
+			}
+//			label:for(int i=0;i<TF.chipJson.getJSONArray("dishlist").size();i++){
+//				JSONObject dishlistJson=TF.chipJson.getJSONArray("dishlist").getJSONObject(i);
+//				if(dishlistJson.getString("CG_ID").equals(cgid)&&dishlistJson.getString("DL_DATE").equals(DateTimeUtil.getNowSimpleDate())&&dishlistJson.getString("MT_ID").equals(TF.currentMealTimes)&&dishlistJson.getIntValue("USE_STATUS")==0){
+//					resultJSON.getJSONObject("view").getJSONObject(key).put("CDR_TYPE", 4);
+//					resultJSON.getJSONObject("view").getJSONObject(key).put("use_status", dishlistJson.getIntValue("USE_STATUS"));
+////					for(Map priceMap:(List<Map>)TF.chipJson.get("dish")){
+////						if(priceMap.get("DISH_ID").equals(TF.chipJson.getJSONObject("dishlist").getJSONObject(TF.chipJson.getJSONObject("chipinfo").getJSONObject(key).getString("CG_ID")).getString("DISH_ID"))&&TF.chipJson.getJSONObject("dishlist").getJSONObject(TF.chipJson.getJSONObject("chipinfo").getJSONObject(key).getString("CG_ID")).getString("MT_ID").equals(TF.currentMealTimes)){
+////							resultJSON.getJSONObject("view").getJSONObject(key).put("cgname", priceMap.get("DISH_NAME"));
+////							resultJSON.getJSONObject("view").getJSONObject(key).put("price", priceMap.get("PRICE"));
+////							resultJSON.getJSONObject("view").getJSONObject(key).put("dishId", priceMap.get("DISH_ID"));
+////						}
+////					}
+//					for(int j=0;j<TF.chipJson.getJSONArray("dish").size();j++){
+//						JSONObject dishJson=TF.chipJson.getJSONArray("dish").getJSONObject(j);
+//						if(dishJson.getString("DISH_ID").equals(dishlistJson.getString("DISH_ID"))){
+//							resultJSON.getJSONObject("view").getJSONObject(key).put("cgname", dishJson.getString("DISH_NAME"));
+//							resultJSON.getJSONObject("view").getJSONObject(key).put("price", dishJson.getString("PRICE"));
+//							resultJSON.getJSONObject("view").getJSONObject(key).put("dishId", dishJson.getString("DISH_ID"));
+//						}
+//					}
+//					flag=true;
+//					break label;
+//				}
+//			}
+//			if(!flag){
+//				resultJSON.getJSONObject("view").getJSONObject(key).put("CDR_TYPE", 0);
+//				resultJSON.getJSONObject("view").getJSONObject(key).put("use_status", TF.chipJson.getJSONObject("category").getJSONObject(TF.chipJson.getJSONObject("chipinfo").getJSONObject(key).getString("CG_ID")).getIntValue("USE_STATUS"));
+//				resultJSON.getJSONObject("view").getJSONObject(key).put("cgname", TF.chipJson.getJSONObject("category").getJSONObject(TF.chipJson.getJSONObject("chipinfo").getJSONObject(key).getString("CG_ID")).getString("CG_NAME"));
+//				resultJSON.getJSONObject("view").getJSONObject(key).put("price", "0.0");
+////				for(Map priceMap:(List<Map>)TF.chipJson.get("chipprice")){
+////					if(priceMap.get("CG_ID").equals(cgid)&&priceMap.get("MACHINE_NO").equals(TF.dsJson.getString("machineId"))&&priceMap.get("MT_ID").equals(TF.currentMealTimes)){
+////						resultJSON.getJSONObject("view").getJSONObject(key).put("price", priceMap.get("PRICE"));
+////						continue key;
+////					}
+////				}
+//				key:for(int i=0;i<TF.chipJson.getJSONArray("chipprice").size();i++){
+//					JSONObject priceJson=TF.chipJson.getJSONArray("chipprice").getJSONObject(i);
+//					if(priceJson.getString("CG_ID").equals(cgid)&&priceJson.getString("MACHINE_NO").equals(TF.dsJson.getString("machineId"))&&priceJson.getString("MT_ID").equals(TF.currentMealTimes)){
+//						resultJSON.getJSONObject("view").getJSONObject(key).put("price", priceJson.getString("PRICE"));
+//						break key;
+//					}
+//				}
+//			}
+//			if(TF.preConsumeJson.containsKey(key)){
+//				resultJSON.getJSONObject("view").getJSONObject(key).put("pay_status", 1);
+//				payStatus*=1;
+//			}else{
+//				resultJSON.getJSONObject("view").getJSONObject(key).put("pay_status", 0);
+//				sum+=resultJSON.getJSONObject("view").getJSONObject(key).getFloatValue("price");
+//				num++;
+//				payStatus*=0;
+//			}
+			if(TF.gdJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").containsKey(key)){
+				resultJSON.getJSONObject("view").getJSONObject(key).put("gd_status", 1);
+				TF.ConsumeJson.put("stage_type", 0);
+				TF.ConsumeJson.put("status", "挂单餐具");
+//				TF.ConsumeJson=JSONObject.parseObject(TF.defaultJSON.toJSONString());
+				return false;
+			}
+		}
+		System.out.println("------vvvv-----"+(System.currentTimeMillis()-start));
+		resultJSON.put("total_price", sum);
+		resultJSON.put("total_num", num);
+		TF.ConsumeJson.put("total_price", DataConvertUtil.moneryFormat(TF.ConsumeJson.getJSONObject("valuation").getJSONObject("handwork").getDoubleValue("price")+resultJSON.getDoubleValue("total_price")+TF.ConsumeJson.getJSONObject("valuation").getJSONObject("commodity").getDoubleValue("price")));
+		TF.ConsumeJson.put("total_num", TF.ConsumeJson.getJSONObject("valuation").getJSONObject("handwork").getIntValue("num")+resultJSON.getIntValue("total_num")+TF.ConsumeJson.getJSONObject("valuation").getJSONObject("commodity").getIntValue("num"));
+		TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").put("price", resultJSON.getString("total_price"));
+		TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").put("num", resultJSON.getIntValue("total_num"));
+		TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").put("view",resultJSON.getJSONObject("view"));
+		if(TF.ConsumeJson.getIntValue("total_num")==0 && TF.ConsumeJson.getJSONObject("valuation").getJSONObject("auto").getJSONObject("view").keySet().size()>0){
+			TF.ConsumeJson.put("stage_type", 0);
+			if(payStatus==1)
+			TF.ConsumeJson.put("status", "已支付");
+			return false;
+	}
+		return true;
+	}
+	
+	public List readPanel(JSONObject rfidRuleJson){
+		try{
+			RfidUtils rfidUtils = RfidUtils.getInstance();
+			List<String> tempRfidList= new ArrayList<String>();
+			if(TF.dsJson.getIntValue("islocation")==1){
+				Map<String,Object> dataMap = rfidUtils.locationRFID(rfidRuleJson);
+				if(Integer.parseInt(dataMap.get("location_num").toString())>0 && Integer.parseInt(dataMap.get("location_num").toString())!=2){
+					if(TF.cdPlasePlance==TF.dsJson.getIntValue("cd")){
+						AudioPlay.playAudio(ConsumeService.FILE_PLEASESETPANEL);
+//						speakUtil.speak("请放托盘");
+					TF.cdPlasePlance=0;
+					}else{
+						TF.cdPlasePlance++;
+					}
+				}else{
+					TF.cdPlasePlance=0;
+					tempRfidList = (ArrayList<String>)dataMap.get("data");
+				}
+			}else{
+//				int readRfidTime=500;
+//				if(TF.rfidJson.getIntValue("readRfidIdTime")!=0)
+//				readRfidTime=TF.rfidJson.getIntValue("readRfidIdTime");
+//				long currentTime=System.currentTimeMillis();
+//				while(System.currentTimeMillis()-currentTime<=readRfidTime){
+					tempRfidList = rfidUtils.findRfidID(rfidRuleJson);
+//					if(tempRfidList!=null && rfidList.size()<tempRfidList.size()){
+//						rfidList=new ArrayList();
+//						rfidList.addAll(tempRfidList);
+//					}
+//				}
+			}
+//			if(tempRfidList!=null){
+//				rfidList=new ArrayList();
+//				rfidList.addAll(tempRfidList);
+//			}
+			return tempRfidList;
+		}catch(Exception e){
+//			String msg=e.getMessage().length()>100?e.getMessage().substring(0, 100):e.getMessage();
+//			logger.error("读餐盘出现错误"+msg);
+			
+			e.printStackTrace();
+			return null;
+		}
+	}
+	
+}
