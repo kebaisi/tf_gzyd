@@ -1,0 +1,29 @@
+package com.kbs.sys;
+
+import java.util.Properties;
+
+import org.apache.log4j.Logger;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.kbs.commons.util.PropertiesUtil;
+import com.kbs.util.ConfigPro;
+import com.kbs.util.TF;
+
+public class LoadBasicData {
+	private static Logger logger=Logger.getLogger(LoadBasicData.class);
+	private static Properties rfidProperties = PropertiesUtil.loadPropertyFile("rfid.properties");
+	private static Properties icProperties = PropertiesUtil.loadPropertyFile("ic.properties");
+	
+	public static void loadData(){
+		try {
+			TF.dsJson=(JSONObject)JSONObject.toJSON(ConfigPro.getInstance().getProperties());
+			TF.rfidJson=(JSONObject) JSON.toJSON(rfidProperties);
+			TF.icJson = (JSONObject)JSON.toJSON(icProperties);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			logger.error("加载ds配置文件失败");
+		}
+		TF.serverUrl = "http://"+TF.dsJson.getString("serverIp")+":"+TF.dsJson.getString("serverPort")+"/k-occ";
+	}
+}
